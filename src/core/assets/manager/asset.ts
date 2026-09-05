@@ -42,6 +42,7 @@ class AssetManager extends EventEmitter {
     queryAssetMeta = assetQuery.queryAssetMeta.bind(assetQuery);
     querySubAssetName = assetQuery.querySubAssetName.bind(assetQuery);
     queryAssetMtime = assetQuery.queryAssetMtime.bind(assetQuery);
+    queryAssetSourceStat = assetQuery.queryAssetSourceStat.bind(assetQuery);
     // ---------- operation ---------
     importAsset = assetOperation.importAsset.bind(assetOperation);
     copyAsset = assetOperation.copyAsset.bind(assetOperation);
@@ -393,6 +394,7 @@ export interface TypedAssetManager extends EventEmitter {
     queryAssetMeta: typeof assetQuery.queryAssetMeta;
     querySubAssetName: typeof assetQuery.querySubAssetName;
     queryAssetMtime: typeof assetQuery.queryAssetMtime;
+    queryAssetSourceStat: typeof assetQuery.queryAssetSourceStat;
 
     importAsset: typeof assetOperation.importAsset;
     copyAsset: typeof assetOperation.copyAsset;

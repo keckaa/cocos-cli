@@ -14,6 +14,13 @@ import {
     TEditorEntity,
 } from '../../common';
 import { PrefabEditor, SceneEditor } from './editors';
+import {
+    isSourceNewerThanRevision,
+    shouldRejectExplicitSave,
+    shouldSaveOnSwitch,
+    shouldSkipCloseSave,
+    type SourceRevision,
+} from './editors/editor-save-policy';
 import { IAssetInfo } from '../../../assets/@types/public';
 import { Rpc } from '../rpc';
 import { enrichMissingDependencyError } from './error-utils';
@@ -38,6 +45,7 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
     private _isReloading = false;
     private lifecyclePromise: Promise<void> = Promise.resolve();
     private editorSessionGeneration = 0;
+    private sourceRevision: SourceRevision | null = null;
 
     public async lock() {
         if (this.reloadPromise) {
@@ -226,7 +234,19 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
                 this.invalidateEditorSession();
                 try {
                     const currentAssetInfo = await Rpc.getInstance().request('assetManager', 'queryAssetInfo', [currentEditorUuid]);
-                    await currentEditor.close({ save: Boolean(currentAssetInfo) });
+                    const sourceNewerOnDisk = currentAssetInfo
+                        ? await this.isSourceNewerOnDisk(currentEditorUuid)
+                        : false;
+                    const save = shouldSaveOnSwitch({
+                        assetExists: Boolean(currentAssetInfo),
+                        isDirty: this.getUndoDirty(),
+                        sourceNewerOnDisk,
+                    });
+                    if (!save && sourceNewerOnDisk) {
+                        console.warn(`[Editor] skip save on switch, source file newer than editor session: ${currentAssetInfo?.url ?? currentEditorUuid}`);
+                    }
+                    await currentEditor.close({ save });
+                    this.sourceRevision = null;
                 } catch (error) {
                     console.error(error);
                     throw error;
@@ -271,6 +291,7 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             // 设置当前打开的编辑器
             this.currentEditorUuid = assetInfo.uuid;
             this.invalidateEditorSession();
+            this.sourceRevision = await this.querySourceRevision(assetInfo.uuid);
             this.emit('editor:open', cc.director.getScene());
             this.isOpen = true;
             console.log(`打开 ${assetInfo.url}`);
@@ -311,10 +332,28 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             }
 
             this.invalidateEditorSession();
-            if (params.save !== false) {
+            const requestedSave = params.save ?? true;
+            const isDirty = this.getUndoDirty();
+            const sourceNewerOnDisk = assetInfo
+                ? await this.isSourceNewerOnDisk(assetInfo.uuid)
+                : false;
+            // Dirty/unknown close would serialize memory over a newer file — refuse.
+            // A clean editor has nothing to write; still close so MCP is not stuck.
+            if (requestedSave && shouldRejectExplicitSave(sourceNewerOnDisk) && isDirty !== false) {
+                throw new Error(this.sourceChangedMessage(assetInfo?.url ?? urlOrUUID));
+            }
+            if (requestedSave && sourceNewerOnDisk && isDirty === false) {
+                console.warn(`[Editor] skip save on close, source file newer than editor session: ${assetInfo?.url ?? urlOrUUID}`);
+            }
+            if (requestedSave) {
                 await this.saveTerrainAssets();
             }
-            const result = await editor.close({ save: params.save ?? true });
+            const save = !shouldSkipCloseSave({
+                requestedSave,
+                isDirty,
+            });
+            const result = await editor.close({ save });
+            this.sourceRevision = null;
 
             if (editor === this.editorMap.get(currentEditorUuid)) {
                 this._clearUndoHistory();
@@ -350,6 +389,10 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
         const urlOrUUID = params.urlOrUUID ?? this.currentEditorUuid;
         try {
             const { assetInfo, currentEditorUuid, editor } = await this.resolveSaveTarget(urlOrUUID);
+            if (assetInfo.uuid === currentEditorUuid
+                && shouldRejectExplicitSave(await this.isSourceNewerOnDisk(currentEditorUuid))) {
+                throw new Error(this.sourceChangedMessage(assetInfo.url));
+            }
             await this.saveTerrainAssets();
             const result = assetInfo.uuid === currentEditorUuid
                 ? await editor.save()
@@ -357,6 +400,7 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             this.assertSavedTarget(result, assetInfo);
 
             this._markUndoSaved();
+            this.sourceRevision = await this.querySourceRevision(result.uuid);
 
             this.emit('editor:save');
             console.log(`保存 ${assetInfo.url}`);
@@ -564,6 +608,39 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
         });
         console.log('[Scene] Script suspend soft reload');
         Service.Script.suspend(Promise.resolve(this.reload({})));
+    }
+
+    private getUndoDirty(): boolean | undefined {
+        try {
+            const undo = queryRegisteredService<{ isDirty?: () => boolean }>('Undo');
+            if (!undo || typeof undo.isDirty !== 'function') {
+                return undefined;
+            }
+            return undo.isDirty();
+        } catch {
+            return undefined;
+        }
+    }
+
+    private async querySourceRevision(uuid: string): Promise<SourceRevision | null> {
+        try {
+            const stat = await Rpc.getInstance().request('assetManager', 'queryAssetSourceStat', [uuid]);
+            if (stat && typeof stat.mtimeMs === 'number' && typeof stat.size === 'number') {
+                return { mtimeMs: stat.mtimeMs, size: stat.size };
+            }
+        } catch {
+            // Scene process may run without this RPC; treat as unknown.
+        }
+        return null;
+    }
+
+    private async isSourceNewerOnDisk(uuid: string): Promise<boolean> {
+        const current = await this.querySourceRevision(uuid);
+        return isSourceNewerThanRevision(this.sourceRevision, current);
+    }
+
+    private sourceChangedMessage(urlOrUUID: string): string {
+        return `磁盘上的 ${urlOrUUID} 已在编辑器上次加载/保存之后被修改，拒绝用内存覆盖。请先关闭且不保存，再重新打开。`;
     }
 
     private _clearUndoHistory(): void {

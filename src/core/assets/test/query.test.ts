@@ -386,6 +386,22 @@ describe('测试 db 的查询接口', function () {
         });
     });
 
+    describe('query-asset-source-stat', function () {
+        it('返回真实源文件的 mtimeMs 与 size', async function () {
+            const fileStat = await assetManager.queryAssetSourceStat(uuid);
+            expect(fileStat).not.toBeNull();
+            expect(typeof fileStat!.mtimeMs).toBe('number');
+            expect(typeof fileStat!.size).toBe('number');
+            expect(fileStat!.size).toBeGreaterThan(0);
+        });
+        it('不存在的资源返回 null', async function () {
+            expect(await assetManager.queryAssetSourceStat(uuid + '@xxx')).toBeNull();
+        });
+        it('非法入参返回 null', async function () {
+            expect(await assetManager.queryAssetSourceStat('')).toBeNull();
+        });
+    });
+
     if (basename(TestGlobalEnv.projectRoot) === 'build-example') {
         // db://assets/asset-depends/test.ts
         const scriptUuid = 'e26cd737-d346-4c64-9c6b-b50792fa8ba7';

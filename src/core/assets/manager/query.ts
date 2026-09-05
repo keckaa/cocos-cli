@@ -11,7 +11,7 @@ import i18n from '../../base/i18n';
 import assetConfig from '../asset-config';
 import minimatch from 'minimatch';
 import utils from '../../base/utils';
-import { existsSync, readJSONSync, readdirSync } from 'fs-extra';
+import { existsSync, readJSONSync, readdirSync, stat } from 'fs-extra';
 import * as path from 'path';
 
 export const DEFAULT_ASSET_INFO_DATA_KEYS = [
@@ -737,6 +737,26 @@ class AssetQueryManager {
             }
         }
         return null;
+    }
+
+    /**
+     * 查询资源源文件当前的磁盘 mtime/size，不走 asset-db 缓存时间。
+     * 用于 scene/prefab 编辑器判断外部（例如 Creator）是否改过文件。
+     */
+    async queryAssetSourceStat(uuidOrUrlOrPath: string): Promise<{ mtimeMs: number; size: number } | null> {
+        if (!uuidOrUrlOrPath || typeof uuidOrUrlOrPath !== 'string') {
+            return null;
+        }
+        const info = this.queryAssetInfo(uuidOrUrlOrPath);
+        if (!info?.file) {
+            return null;
+        }
+        try {
+            const fileStat = await stat(info.file);
+            return { mtimeMs: fileStat.mtimeMs, size: fileStat.size };
+        } catch {
+            return null;
+        }
     }
 
     queryUUID(urlOrPath: string): string | null {
