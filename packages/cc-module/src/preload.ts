@@ -1,7 +1,17 @@
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { EngineLoader } from './loader';
 import sharp from 'sharp';
 let hasPreload = false;
+
+/** 4.0 编译产物优先；3.8.8 使用引擎里的 platforms/nodejs 源码垫片。 */
+function resolveNodeAdapter(engineRoot: string, compiledName: string, sourceRelative: string): string {
+    const compiled = join(engineRoot, 'bin', '.editor', compiledName);
+    if (existsSync(compiled)) {
+        return compiled;
+    }
+    return join(engineRoot, 'platforms', 'nodejs', sourceRelative);
+}
 
 /**
  * 初始化引擎加载器。预先引擎模块，并将其映射为在编辑器内可用的 CommonJS 模块。
@@ -35,6 +45,11 @@ async function preload(options: {
         globalThis.CC_EDITOR = false;
         // @ts-ignore
         globalThis.CC_PREVIEW = false;
+        // 3.8.8 编辑器包把 split 和 _RF.reset 编在 EDITOR 后面。
+        // 不能把 CC_EDITOR 打开：wasm 会在 SystemJS 包里调用 require('fs')。
+        // 4.0 的 dev-cli 包用编译期 NODEJS 打开这两处，不读这个标记。
+        // @ts-ignore
+        globalThis.CC_CLI = true;
         // @ts-ignore
         globalThis.window = globalThis.global;
         const LocalStorage = require('node-localstorage').LocalStorage;
@@ -56,7 +71,7 @@ async function preload(options: {
         };
         
         // loader web adapter
-        require(join(options.engineRoot, 'bin/.editor/web-adapter.js'));
+        require(resolveNodeAdapter(options.engineRoot, 'web-adapter.js', join('builtin', 'index.js')));
         // init EngineLoader
         await EngineLoader.init(options.engineDev, options.requiredModules);
 
@@ -66,7 +81,7 @@ async function preload(options: {
             // eslint-disable-next-line no-undef
             const ccm = window.ccm = require('cc');
 
-            await import(join(options.engineRoot, 'bin/.editor/engine-adapter.js'));
+            await import(resolveNodeAdapter(options.engineRoot, 'engine-adapter.js', join('engine', 'index.js')));
             // ---- hack creator 使用的一些 engine 参数
             require('./polyfill/engine');
             // overwrite

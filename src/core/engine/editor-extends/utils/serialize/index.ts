@@ -1,7 +1,10 @@
-import { getRootData } from './compiled/builder';
-import packJSONs from './compiled/pack-jsons';
+import { deserialize } from 'cc';
 import { default as doSerialize, IOptions } from './parser';
 import { asAsset, setName, findRootObject } from './dynamic-builder';
+
+function hasCompiledMacros(): boolean {
+    return !!(deserialize as { _macros?: object })._macros;
+}
 
 export function serialize(obj: Exclude<any, null | undefined>, options?: IOptions): string | object {
     // console.time('Serialize in dynamic format');
@@ -34,6 +37,9 @@ serialize.setName = setName;
 serialize.findRootObject = findRootObject;
 
 export function serializeCompiled(obj: Exclude<any, null | undefined>, options: IOptions): string | object {
+    if (!hasCompiledMacros()) {
+        return serialize(obj, Object.assign({}, options, { builder: 'dynamic' }));
+    }
     options = Object.assign({
         builder: 'compiled',
         dontStripDefault: false,
@@ -41,5 +47,15 @@ export function serializeCompiled(obj: Exclude<any, null | undefined>, options: 
     return doSerialize(obj, options);
 }
 
-serializeCompiled.getRootData = getRootData;
-serializeCompiled.packJSONs = packJSONs;
+serializeCompiled.getRootData = (data: any) => {
+    if (!hasCompiledMacros()) {
+        return data;
+    }
+    return require('./compiled/builder').getRootData(data);
+};
+serializeCompiled.packJSONs = (jsons: any) => {
+    if (!hasCompiledMacros()) {
+        return jsons;
+    }
+    return require('./compiled/pack-jsons').default(jsons);
+};

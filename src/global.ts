@@ -3,11 +3,24 @@
  */
 
 import { join } from 'path';
+import { resolveEngineRoot } from './engine-root';
+
+const workspace = join(__dirname, '..');
+
+function requireEnginePath(): string {
+    try {
+        return resolveEngineRoot(workspace);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Error: ${message}`);
+        process.exit(1);
+    }
+}
 
 export const GlobalPaths = {
-    staticDir: join(__dirname, '../static'),
-    workspace: join(__dirname, '..'),
-    enginePath: join(__dirname, '..', 'packages', 'engine'),
+    staticDir: join(workspace, 'static'),
+    workspace,
+    enginePath: requireEnginePath(),
 };
 
 /**

@@ -66,6 +66,15 @@ const Backends2D = {
 // 直接在数据源上过滤掉，减少 视图层的判断
 const ignoreModules = ['custom-pipeline-post-process'];
 
+/** 4.0 的 CLI 编译产物是 dev-cli；3.8.8 编辑器编译产物是 dev。 */
+function resolveEngineDevCache(engineRoot: string): string {
+    const devCli = join(engineRoot, 'bin', '.cache', 'dev-cli');
+    if (existsSync(devCli)) {
+        return devCli;
+    }
+    return join(engineRoot, 'bin', '.cache', 'dev');
+}
+
 function extractMacros(expression: string): string[] {
     // envCondition uses a small "$MACRO || $MACRO" grammar shared with the engine compiler.
     return expression.split('||').map(match => match.trim().substring(1));
@@ -475,7 +484,7 @@ class EngineManager implements IEngine {
         await this.importEditorExtensions();
         await preload({
             engineRoot: this._info.typescript.path,
-            engineDev: join(this._info.typescript.path, 'bin', '.cache', 'dev-cli'),
+            engineDev: resolveEngineDevCache(this._info.typescript.path),
             writablePath: info.writablePath,
             requiredModules: [
                 'cc',
@@ -506,7 +515,7 @@ class EngineManager implements IEngine {
             debugMode: cc.debug.DebugMode.WARN,
             overrideSettings: {
                 engine: {
-                    builtinAssets: builtinAssets || [],
+                    ...(builtinAssets && builtinAssets.length ? { builtinAssets } : {}),
                     macros: macroConfig,
                     sortingLayers,
                     customLayers: customLayers.map((layer: any) => {
@@ -543,7 +552,7 @@ class EngineManager implements IEngine {
                     importBase: info.importBase,
                     nativeBase: info.nativeBase,
                     remoteBundles: ['internal', 'main'].concat(bundles),
-                    server: info.serverURL,
+                    server: assetServerAddress(info.serverURL),
                 }
             },
             exactFitScreen: true,
@@ -588,7 +597,7 @@ class EngineManager implements IEngine {
             debugMode: cc.debug.DebugMode.WARN,
             overrideSettings: {
                 engine: {
-                    builtinAssets: builtinAssets || [],
+                    ...(builtinAssets && builtinAssets.length ? { builtinAssets } : {}),
                     macros: macroConfig,
                     sortingLayers,
                     customLayers: customLayers.map((layer: any) => {
@@ -626,7 +635,7 @@ class EngineManager implements IEngine {
                     importBase: importBase,
                     nativeBase: nativeBase,
                     remoteBundles: ['internal', 'main'].concat(bundles),
-                    server: serverURL,
+                    server: assetServerAddress(serverURL),
                 }
             },
             exactFitScreen: true,
@@ -705,6 +714,14 @@ export { Engine };
  * @param projectPath
  * @param serverURL
  */
+/** 3.8.8 把 server 和 remote/ 直接拼接，地址必须以 / 结尾。 */
+function assetServerAddress(serverURL?: string): string | undefined {
+    if (!serverURL) {
+        return serverURL;
+    }
+    return serverURL.endsWith('/') ? serverURL : `${serverURL}/`;
+}
+
 export async function initEngine(enginePath: string, projectPath: string, serverURL?: string) {
     await Engine.init(enginePath);
     // 这里 importBase 与 nativeBase 用服务器是为了让服务器转换资源真实存放的路径

@@ -1,6 +1,6 @@
 
 import { ChildProcess, fork, ForkOptions, spawn } from 'child_process';
-import { join } from 'path';
+import { delimiter, join } from 'path';
 import { IQuickSpawnOption } from '../../@types/protected';
 import project from '../../../project';
 import { GlobalPaths } from '../../../../global';
@@ -177,6 +177,13 @@ class WorkerTask {
             stdio: ['ipc', 'pipe', 'pipe', 'pipe'],
             // 进程默认的 cwd 不同系统上不稳定，在编译脚本时可能遇到问题
             cwd: this.options?.cwd || GlobalPaths.workspace,
+            // 引擎在仓库外时，babel.config.js 从引擎目录向上解析依赖。
+            // 把本仓库 node_modules 放进 NODE_PATH，外部引擎才能找到 @babel/preset-env。
+            // 仓库内的 4.0 引擎仍先用自己目录上的 node_modules。
+            env: {
+                ...process.env,
+                NODE_PATH: [join(GlobalPaths.workspace, 'node_modules'), process.env.NODE_PATH].filter(Boolean).join(delimiter),
+            },
             // 确保子进程能够独立运行
             detached: false,
             // 确保信号处理正确

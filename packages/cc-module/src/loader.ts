@@ -10,6 +10,43 @@ const ModuleInternal = Module as typeof Module & {
     _load(this: Module, request: string): void;
 };
 
+const modulePrototype = Module.prototype as typeof Module.prototype & {
+    _compile(content: string, filename: string): unknown;
+};
+
+const dollar = '$';
+const virtualPrerequisiteAnchor = `applyImportMap(System, importMap, require${dollar}${dollar}7.pathToFileURL(importMapFile).href);\n`;
+const virtualPrerequisiteHook = `
+        const originalInstantiate = System.instantiate.bind(System);
+        System.instantiate = function (url, parentUrl) {
+            if (typeof url === 'string' && url.startsWith('virtual:///prerequisite-imports/')) {
+                return Promise.resolve([[], function () {
+                    return { setters: [], execute () {} };
+                }]);
+            }
+            return originalInstantiate(url, parentUrl);
+        };
+
+`;
+
+/** 3.8.8 编辑器包在非 EDITOR 模式下会 import virtual:///prerequisite-imports。4.0 loader 没有这段锚点，不会改。 */
+function loadEditorLoader(engineDevPath: string): IEngineLoader {
+    const loaderPath = resolve(join(engineDevPath, 'editor'), 'loader.js');
+    const originalCompile = modulePrototype._compile;
+    modulePrototype._compile = function (content: string, filename: string) {
+        if (filename === loaderPath && content.includes(virtualPrerequisiteAnchor) && !content.includes('virtual:///prerequisite-imports/')) {
+            const inserted = virtualPrerequisiteAnchor + virtualPrerequisiteHook;
+            content = content.replace(virtualPrerequisiteAnchor, () => inserted);
+        }
+        return originalCompile.call(this, content, filename);
+    };
+    try {
+        return (require(loaderPath) as { default: IEngineLoader }).default;
+    } finally {
+        modulePrototype._compile = originalCompile;
+    }
+}
+
 export class EngineLoader {
     static isEngineModule(request: string): boolean {
         return request === 'cc' || (request.startsWith('cc/') && !request.startsWith('cc/preload')) || request.startsWith('cce:/internal/');
@@ -23,11 +60,7 @@ export class EngineLoader {
     private static loader: IEngineLoader | undefined;
 
     private static createEngineLoader(engineDevPath: string): IEngineLoader {
-        const loaderModule = require(resolve(join(engineDevPath, 'editor'), 'loader')) as {
-            default: IEngineLoader;
-        };
-
-        return loaderModule.default;
+        return loadEditorLoader(engineDevPath);
     }
 
     public static async init(engineDevPath: string, modules: string[]) {

@@ -7,7 +7,6 @@ import {
     Node as CCNode,
     Component as CCComponent,
     ValueType,
-    deserialize,
     CCClass,
     js,
     editorExtrasTag,
@@ -18,13 +17,10 @@ import Utils from '../../../../base/utils';
 // @ts-ignore
 import { SERVER_MODE } from 'cc/editor/populate-internal-constants';
 
-import CompiledBuilder from './compiled/builder';
 import DynamicBuilder from './dynamic-builder';
-
-// import deserializer types
-import D = deserialize.Internal;
 import { Builder, IBuilderOptions } from './base-builder';
-type AnyCCClass = D.AnyCCClass_;
+
+type AnyCCClass = any;
 
 const { PersistentMask, DontSave, DontDestroy, EditorOnly } = CCObject.Flags;
 
@@ -737,8 +733,13 @@ export default function serialize(obj: Exclude<any, null | undefined>, options: 
 
     let builder: Builder;
     if (options.builder === 'compiled') {
+        const { deserialize } = require('cc') as { deserialize: { _macros?: object } };
+        if (!deserialize._macros) {
+            throw new Error('当前引擎没有 deserialize._macros，不能使用编译期序列化。');
+        }
         options._exporting = true;
         options.useCCON = false;
+        const CompiledBuilder = require('./compiled/builder').default;
         builder = new CompiledBuilder(options);
     }
     else {

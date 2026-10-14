@@ -32,8 +32,8 @@ export const GltfAnimationHandler: AssetHandler = {
 
     importer: {
         // 版本号如果变更，则会强制重新导入
-        version: '1.0.18',
-        versionCode: 4,
+        version: '1.0.19',
+        versionCode: 5,
         /**
          * 实际导入流程
          * 需要自己控制是否生成、拷贝文件
