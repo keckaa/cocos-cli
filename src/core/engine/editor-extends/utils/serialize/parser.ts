@@ -116,7 +116,7 @@ function equalsToDefault(def: any, value: any) {
     return false;
 }
 
-function isSerializableClass(obj: object, ctor: any): ctor is AnyCCClass {
+function isSerializableClass(obj: object, ctor: any): boolean {
     if (!ctor) {
         return false;
     }
