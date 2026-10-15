@@ -33,17 +33,25 @@ For native development, please refer to the [Native Development Setup Guide](htt
    cd cocos-cli
    ```
 
-2. **Install dependencies**
+2. **Install, resolve the local engine, and link globally**
 
    ```bash
    npm install -g node-gyp
    npm run init
    npm install
+   npm run resolve-engine
+   npm run build
+   npm link
    ```
 
-3. **Build and link globally**
+   `npm run resolve-engine` reads the 3.8.8 JavaScript engine selected in the local Cocos Creator settings and writes it to `engine` in `config.local.json`.
+
+3. **Update**
 
    ```bash
+   git pull
+   npm install
+   npm run resolve-engine
    npm run build
    npm link
    ```

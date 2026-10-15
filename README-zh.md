@@ -33,17 +33,25 @@
    cd cocos-cli
    ```
 
-2. **安装依赖**
+2. **安装依赖并链接到全局**
 
    ```bash
    npm install -g node-gyp
    npm run init
    npm install
+   npm run resolve-engine
+   npm run build
+   npm link
    ```
 
-3. **构建并链接到全局**
+   `npm run resolve-engine` 读取本机 Cocos Creator 当前选中的 3.8.8 JavaScript 引擎，写入 `config.local.json` 的 `engine`。
+
+3. **更新**
 
    ```bash
+   git pull
+   npm install
+   npm run resolve-engine
    npm run build
    npm link
    ```

@@ -23,6 +23,9 @@ npm install
 # 下载开发工具（首次运行）
 npm run download-tools
 
+# 读取本机 Cocos Creator 当前选中的 3.8.8 JavaScript 引擎
+npm run resolve-engine
+
 # 构建并链接到全局
 npm run build
 npm link

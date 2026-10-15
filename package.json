@@ -15,6 +15,7 @@
     },
     "scripts": {
         "init": "node workflow/init.js",
+        "resolve-engine": "node workflow/resolve-engine.js",
         "clear": "node workflow/clear.js",
         "update:repos": "node workflow/update-repo.js",
         "test": "node workflow/test.js",

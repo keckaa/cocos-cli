@@ -23,6 +23,9 @@ npm install
 # Download development tools (first time only)
 npm run download-tools
 
+# Read the 3.8.8 JavaScript engine selected in local Cocos Creator
+npm run resolve-engine
+
 # Build and link globally
 npm run build
 npm link
