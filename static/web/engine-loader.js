@@ -53,7 +53,15 @@ export async function loadEngine(options = {}) {
         window.CC_PREVIEW = true;
     }
     await import('/static/web/editor-extends.bundle.js');
-    await import('/scripting/engine-dist/bundled/index.js');
+    try {
+        await import('/scripting/engine-dist/bundled/index.js');
+    } catch (error) {
+        // 3.8.8 的编辑器包是 System.register，原生 import 解析失败时改走 SystemJS。
+        if (typeof System === 'undefined' || typeof System.import !== 'function') {
+            throw error;
+        }
+        await System.import('/scripting/engine-dist/bundled/index.js');
+    }
 
     return env;
 }

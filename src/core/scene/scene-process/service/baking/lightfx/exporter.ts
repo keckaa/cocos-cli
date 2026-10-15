@@ -1,4 +1,4 @@
-import { DirectionalLight, director, gfx, Light, MeshRenderer, MobilityMode, renderer, Scene, SphereLight, SpotLight, Terrain, TERRAIN_BLOCK_TILE_COMPLEXITY, Texture2D, Vec3 } from 'cc';
+import { CCObject, DirectionalLight, director, gfx, Layers, Light, MeshRenderer, MobilityMode, renderer, Scene, SphereLight, SpotLight, Terrain, TERRAIN_BLOCK_TILE_COMPLEXITY, Texture2D, Vec3 } from 'cc';
 import type { ILightFXTextureSource, ILightFXSceneStats } from '../../../../common/lightfx-host';
 import { lightmapSceneStats } from './scene-stats';
 import { lightFXBakeHost } from './host';
@@ -49,7 +49,10 @@ export class LightFXExporter {
     }
 
     private async exportMesh(model: MeshRenderer, target: LightFXBakeTarget): Promise<LightFXMesh | null> {
-        const mesh: any = model.mesh; if (!mesh) return null; const bake: any = model.bakeSettings;
+        const mesh: any = model.mesh; if (!mesh) return null;
+        // 场景视图的网格和坐标轴挂在 EDITOR 层且 DontSave，顶点没有法线，不能送进 LightFX。
+        if ((model.node._objFlags & CCObject.Flags.DontSave) || (model.node.layer & Layers.Enum.EDITOR)) return null;
+        const bake: any = model.bakeSettings;
         if (target === 'light-probe' && !bake.bakeToLightProbe) return null;
         if (target === 'lightmap' && !bake.bakeable && !bake.castShadow) return null;
         const out: LightFXMesh = { castShadow: target === 'light-probe' ? true : bake.castShadow, receiveShadow: target === 'lightmap' && bake.receiveShadow, lightmapSize: target === 'lightmap' && bake.bakeable ? bake.lightmapSize : 0, vertices: [], triangles: [], materials: [] };

@@ -271,6 +271,12 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             const comp = node.addComponent(ctor);
             this.requireComponentList = [];
             const addedComponents = node.components.filter(component => !componentUuidsBeforeAdd.has(component.uuid));
+            // 3.8.8 编辑器包在 EDITOR 为 false 时不会把组件登记进路径表。4.0 已经登记过的不重复添加。
+            for (const added of addedComponents) {
+                if (!compMgr.getPathFromUuid(added.uuid)) {
+                    EditorExtends.Component.add(added.uuid, added);
+                }
+            }
 
             // prefab 模式下的 Canvas 创建
             const mode = this.queryMode();

@@ -92,6 +92,7 @@ export class LightProbeBakeService extends BaseService<ILightFXBakeEvents> imple
         const sceneUrl = await this.querySceneUrl();
         context.assertCurrent();
         const info: any = scene.globals.lightProbeInfo;
+        this.syncGeneratedProbes(scene);
         const probes: any[] = info.data?.probes ?? [];
         if (probes.length < 4) throw new Error('At least four generated light probes are required.');
 
@@ -221,6 +222,26 @@ export class LightProbeBakeService extends BaseService<ILightFXBakeEvents> imple
                 item.coefficients[coefficient * 3 + 2],
             ));
         });
+    }
+
+    // 3.8.8 的 LightProbeGroup 只在 EDITOR 下把探针写进场景。MCP 没有单独的生成按钮，
+    // 烘焙前对空探针组按当前包围盒生成，已有探针则只同步到 lightProbeInfo。
+    private syncGeneratedProbes(scene: any): void {
+        const groups = typeof scene.getComponentsInChildren === 'function'
+            ? scene.getComponentsInChildren('cc.LightProbeGroup')
+            : [];
+        for (const group of groups) {
+            const info = scene.globals?.lightProbeInfo;
+            if (info && typeof info.addNode === 'function') {
+                info.addNode(group.node);
+            }
+            const placed = group?.probes?.length ?? 0;
+            if (placed < 4 && typeof group.generateLightProbes === 'function') {
+                group.generateLightProbes();
+            } else if (typeof group.onProbeChanged === 'function') {
+                group.onProbeChanged();
+            }
+        }
     }
 
     private snapshot(probes: any[]): ProbeSnapshot[] {

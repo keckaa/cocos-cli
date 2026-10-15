@@ -788,11 +788,16 @@ export class ReflectionProbeService extends BaseService<IReflectionProbeEvents> 
             throw new Error(`Reflection probe has an invalid resolution: ${resolution}`);
         }
 
-        const sceneName = node.scene?.name;
-        if (!sceneName) {
+        const scene = node.scene;
+        if (!scene) {
             throw new Error('No scene is currently open in the WebGL scene renderer.');
         }
         const sceneUrl = await this._queryCurrentSceneUrl();
+        const sceneFileName = sceneUrl ? basename(sceneUrl).replace(/\.scene$/i, '') : '';
+        const sceneName = scene.name || sceneFileName;
+        if (!sceneName) {
+            throw new Error('No scene is currently open in the WebGL scene renderer.');
+        }
         this.assertSceneIdentity(captureSource);
         const captureToken = this._createCaptureToken(node, component);
         const deadline = Date.now() + timeoutMs;

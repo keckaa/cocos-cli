@@ -1,8 +1,10 @@
 'use strict';
 
 import { Asset } from '@cocos/asset-db';
+import { existsSync } from 'fs';
 import { readJSON } from 'fs-extra';
 import { extname, basename, join } from 'path';
+import { url2path } from '../../../utils';
 
 import { getDependList, removeNull } from '../../utils';
 import { AssetHandler, ICreateMenuInfo } from '../../../@types/protected';
@@ -20,13 +22,20 @@ export const SceneHandler: AssetHandler = {
     createInfo: {
         async generateMenuInfo() {
             const templateDir = 'db://internal/default_file_content/scene';
+            // 4.0 模板是 3d/2d/quality.scene；3.8.8 对应 default/scene-2d/scene-quality.scene。
+            const fallbacks: Record<string, string[]> = {
+                '3d': ['3d.scene', 'default.scene'],
+                '2d': ['2d.scene', 'scene-2d.scene'],
+                quality: ['quality.scene', 'scene-quality.scene'],
+            };
             return ['3d', '2d', 'quality'].map((name) => {
+                const fileName = (fallbacks[name] || [`${name}.scene`]).find((candidate) => existsSync(url2path(`${templateDir}/${candidate}`))) || `${name}.scene`;
                 return {
                     group: 'scene',
                     label: `i18n:ENGINE.assets.newScene.${name}`,
                     name,
                     fullFileName: name === '3d' ? 'scene.scene' : `scene-${name}.scene`,
-                    template: `${templateDir}/${name}.scene`,
+                    template: `${templateDir}/${fileName}`,
                 };
             });
         },

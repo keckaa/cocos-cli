@@ -44,6 +44,7 @@ import { basename, extname } from 'path';
 
 import { Service } from '../core/decorator';
 import { Rpc } from '../../rpc';
+import { prefabUtils } from '../prefab/utils';
 
 
 /**
@@ -168,6 +169,11 @@ export async function createNodeByAsset(info: {
             {
                 asset = await loadAny<Prefab>(uuid);
                 node = instantiate(asset);
+                // 3.8.8 的 instantiate 不带 PrefabInstance。4.0 已经有 instance 时保持原值。
+                const prefabInfo = node?.['_prefab'];
+                if (prefabInfo && !prefabInfo.instance) {
+                    prefabInfo.instance = prefabUtils.createPrefabInstance();
+                }
                 newCanvasRequired = newCanvasRequired || Boolean(node && getPrefabCanvasRequired(node));
             }
             break;

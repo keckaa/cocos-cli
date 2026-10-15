@@ -11,6 +11,19 @@ import assetConfig from '../../asset-config';
 import i18n from '../../../base/i18n';
 import { url2path } from '../../utils';
 import { Engine } from '../../../engine';
+
+/** 4.0 脚本模板名是 default，3.8.8 是 ts。 */
+function typescriptTemplateUrl() {
+    const preferred = 'db://internal/default_file_content/typescript/default';
+    if (existsSync(url2path(preferred))) {
+        return preferred;
+    }
+    const legacy = 'db://internal/default_file_content/typescript/ts';
+    if (existsSync(url2path(legacy))) {
+        return legacy;
+    }
+    return preferred;
+}
 // import { getCompilerOptions } from './utils/ts-utils';
 
 // const enum TypeCheckLevel {
@@ -32,7 +45,7 @@ export const TypeScriptHandler: AssetHandler = {
                 {
                     label: 'i18n:ENGINE.assets.newTypeScript',
                     fullFileName: `${ScriptNameChecker.getDefaultClassName()}.ts`,
-                    template: `db://internal/default_file_content/${TypeScriptHandler.name}/default`,
+                    template: typescriptTemplateUrl(),
                     group: 'script',
                     fileNameCheckConfigs: [DefaultScriptFileNameCheckConfig],
                     name: 'default',
@@ -76,7 +89,7 @@ export const TypeScriptHandler: AssetHandler = {
             return menu;
         },
         async create(options) {
-            const path = url2path(options.template || 'db://internal/default_file_content/typescript/default');
+            const path = url2path(options.template && existsSync(url2path(options.template)) ? options.template : typescriptTemplateUrl());
             if (options.content && typeof options.content !== 'string') {
                 outputFileSync(options.target, options.content, 'utf-8');
                 return options.target;

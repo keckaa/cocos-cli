@@ -40,6 +40,22 @@ export default async function boot(options = {}) {
             gameView,
         });
 
+        // 3.8.8 把 BufferBuilder 放在 cc/editor/serialization，4.0 才挂到 cc.internal。
+        try {
+            const cc = await System.import('cc');
+            const serialization = await System.import('cc/editor/serialization');
+            const root = globalThis.cc || cc;
+            globalThis.cc = root;
+            const internal = root.internal || (root.internal = {});
+            for (const key of ['BufferBuilder', 'CCON', 'encodeCCONBinary', 'decodeCCONBinary']) {
+                if (!internal[key] && serialization[key]) {
+                    internal[key] = serialization[key];
+                }
+            }
+        } catch (error) {
+            console.warn('[Scene] serialization internal polyfill skipped:', error);
+        }
+
         if (!gameView) {
             Service?.Engine?.resume?.();
         }
