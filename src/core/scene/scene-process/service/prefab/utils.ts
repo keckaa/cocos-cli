@@ -1131,7 +1131,7 @@ class PrefabUtil {
         const outMostPrefabInfo = outMostPrefabInstanceNode['_prefab'];
         if (outMostPrefabInstance && outMostPrefabInfo && outMostPrefabInfo.asset) {
 
-            if (outMostPrefabInstance.removedComponents.length <= 0) {
+            if (!outMostPrefabInstance.removedComponents || outMostPrefabInstance.removedComponents.length <= 0) {
                 return removedComps;
             }
 
