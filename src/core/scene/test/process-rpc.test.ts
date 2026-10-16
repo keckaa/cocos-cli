@@ -5,6 +5,7 @@ import * as path from 'path';
 interface INodeService {
     createNode(name: string): Promise<string>;
     longTask(): Promise<void>;
+    hang(): Promise<void>;
 }
 
 interface ISceneService {
@@ -79,5 +80,62 @@ describe('ProcessRPC 双向调用测试', () => {
         await expect(
             rpc.request('node', 'longTask', [], { timeout: 100 })
         ).rejects.toThrow(/RPC request timeout/);
+    });
+});
+
+describe('ProcessRPC 进程退出', () => {
+    test('子进程退出后，未设置超时的请求会失败一次', async () => {
+        const child = fork(workerPath, [], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] });
+        const exiting = new ProcessRPC<{ node: INodeService }>();
+        exiting.attach(child);
+        let rejections = 0;
+        const pending = exiting.request('node', 'hang', []).then(
+            () => {
+                throw new Error('请求不应成功');
+            },
+            (err: Error) => {
+                rejections += 1;
+                return err;
+            },
+        );
+        child.kill();
+        const err = await pending;
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toContain('场景进程已退出');
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(rejections).toBe(1);
+    });
+
+    test('退出和超时不会把同一次请求失败两次', async () => {
+        const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+        const fake = {
+            connected: true,
+            on(event: string, cb: (...args: any[]) => void) {
+                (listeners[event] ??= []).push(cb);
+            },
+            off(event: string, cb: (...args: any[]) => void) {
+                listeners[event] = (listeners[event] || []).filter((fn) => fn !== cb);
+            },
+            send() { },
+        };
+        const exiting = new ProcessRPC<{ node: INodeService }>();
+        exiting.attach(fake as any);
+        const onMessage = listeners.message[0];
+        let rejections = 0;
+        const pending = exiting.request('node', 'longTask', [], { timeout: 30 }).then(
+            () => {
+                throw new Error('请求不应成功');
+            },
+            (err: Error) => {
+                rejections += 1;
+                return err;
+            },
+        );
+        listeners.exit.forEach((cb) => cb());
+        const err = await pending;
+        expect(err.message).toContain('场景进程已退出');
+        onMessage({ id: 1, type: 'response', result: 'late' });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(rejections).toBe(1);
     });
 });

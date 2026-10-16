@@ -100,6 +100,21 @@ class ScriptManager {
     }
 
     /**
+     * 脚本文件刚移动、资源库事件还没到时，同步改编译入口。
+     * 打包器还没创建、或不是已跟踪脚本时什么都不做。
+     */
+    relocateScript(uuid: string, oldFilePath: string, newFilePath: string): void {
+        if (!uuid || !oldFilePath || !newFilePath || !PackerDriver.hasInstance()) {
+            return;
+        }
+        const ext = oldFilePath.slice(oldFilePath.lastIndexOf('.')).toLowerCase();
+        if (ext !== '.ts' && ext !== '.js') {
+            return;
+        }
+        PackerDriver.getInstance().relocateScript(uuid, oldFilePath, newFilePath);
+    }
+
+    /**
      * 
      * @param delay 延迟时间，单位为毫秒, 同一时间只能有一个延迟编译任务，如果存在则返回已有的任务ID
      * @returns 延迟编译任务的ID，如果存在则返回已有的任务ID

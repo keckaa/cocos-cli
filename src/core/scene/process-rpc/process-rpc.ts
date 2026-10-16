@@ -28,6 +28,12 @@ interface RpcNotify {
 
 type RpcMessage = RpcRequest | RpcResponse | RpcNotify;
 
+interface PendingRpc {
+    done: boolean;
+    timer?: ReturnType<typeof setTimeout>;
+    settle: (msg: RpcResponse) => void;
+}
+
 /**
  * request 的 options
  */
@@ -80,10 +86,13 @@ interface RequestOptions {
  */
 export class ProcessRPC<TModules extends Record<string, any>> {
     private handlers: Record<string, any> = {};
-    private callbacks = new Map<number, (msg: RpcResponse) => void>();
+    private callbacks = new Map<number, PendingRpc>();
     private msgId = 0;
     private process: NodeJS.Process | ChildProcess | undefined;
     private onMessageBind = this.onMessage.bind(this);
+    private onExitBind = () => {
+        this.dispose();
+    };
     private serverUrl: string | undefined;
     private isWebMode = false;
 
@@ -95,6 +104,7 @@ export class ProcessRPC<TModules extends Record<string, any>> {
         this.process = proc;
         this.isWebMode = false;
         this.listen();
+        (proc as NodeJS.EventEmitter).on('exit', this.onExitBind);
     }
 
     /**
@@ -119,12 +129,22 @@ export class ProcessRPC<TModules extends Record<string, any>> {
      * 重置消息注册
      */
     public dispose() {
-        this.msgId = 0;
+        const pending = Array.from(this.callbacks.values());
         this.callbacks.clear();
-        this.process?.off('message', this.onMessageBind);
+        this.msgId = 0;
+        const proc = this.process;
         this.process = undefined;
         this.serverUrl = undefined;
         this.isWebMode = false;
+        for (const item of pending) {
+            if (item.timer) {
+                clearTimeout(item.timer);
+                item.timer = undefined;
+            }
+            this._finish(item, { id: 0, type: 'response', error: '场景进程已退出' });
+        }
+        proc?.off('message', this.onMessageBind);
+        (proc as NodeJS.EventEmitter | undefined)?.off('exit', this.onExitBind);
     }
 
     /**
@@ -166,10 +186,10 @@ export class ProcessRPC<TModules extends Record<string, any>> {
 
         // 响应
         if (msg.type === 'response') {
-            const callback = this.callbacks.get(msg.id);
-            if (callback) {
-                callback(msg);
+            const pending = this.callbacks.get(msg.id);
+            if (pending) {
                 this.callbacks.delete(msg.id);
+                this._finish(pending, msg);
             }
         }
 
@@ -241,24 +261,48 @@ export class ProcessRPC<TModules extends Record<string, any>> {
                 args: args || []
             };
 
-            const timer = options?.timeout
-                ? setTimeout(() => {
+            const pending: PendingRpc = {
+                done: false,
+                settle: (res) => {
+                    if (res.error) reject(new Error(res.error));
+                    else resolve(res.result);
+                },
+            };
+            if (options?.timeout) {
+                pending.timer = setTimeout(() => {
                     this.callbacks.delete(id);
-                    reject(new Error(`RPC request timeout: ${String(module)}.${String(method)}`));
-                }, options.timeout)
-                : null;
-
-            this.callbacks.set(id, (res) => {
-                if (timer) clearTimeout(timer);
-                if (res.error) reject(new Error(res.error));
-                else resolve(res.result);
-            });
+                    this._finish(pending, {
+                        id,
+                        type: 'response',
+                        error: `RPC request timeout: ${String(module)}.${String(method)}`,
+                    });
+                }, options.timeout);
+            }
+            this.callbacks.set(id, pending);
 
             if (!this.process) {
+                this.callbacks.delete(id);
+                pending.done = true;
+                if (pending.timer) {
+                    clearTimeout(pending.timer);
+                    pending.timer = undefined;
+                }
                 throw new Error('RPC 尚未挂载进程且未开启 Web 模式');
             }
             this.process.send?.(req);
         });
+    }
+
+    private _finish(pending: PendingRpc, msg: RpcResponse) {
+        if (pending.done) {
+            return;
+        }
+        pending.done = true;
+        if (pending.timer) {
+            clearTimeout(pending.timer);
+            pending.timer = undefined;
+        }
+        pending.settle(msg);
     }
 
     /**

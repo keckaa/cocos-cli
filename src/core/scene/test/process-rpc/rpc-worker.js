@@ -10,6 +10,10 @@ class NodeService {
         return new Promise((resolve) => setTimeout(() => resolve('done'), 500));
     }
 
+    async hang() {
+        return new Promise(() => {});
+    }
+
     async ping() {
         return 'pong';
     }

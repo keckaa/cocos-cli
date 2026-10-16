@@ -4,6 +4,8 @@ import fs from 'fs-extra';
 import { fileURLToPath, pathToFileURL, URL } from 'url';
 import { performance } from 'perf_hooks';
 import { makePrerequisiteImportsMod, makeTentativePrerequisiteImports, prerequisiteImportsModURL } from './prerequisite-imports';
+import { BuildLane } from './build-lane';
+import { applyScriptDelete, applyScriptUpsert, relocateScriptModule, ScriptModuleRegistry } from './prerequisite-registry';
 import { editorBrowserslistQuery } from '@cocos/lib-programming/dist/utils';
 import { StatsQuery } from '@cocos/ccbuild';
 import { asserts } from '../utils/asserts';
@@ -92,6 +94,10 @@ export class PackerDriver {
     public static getInstance(): PackerDriver {
         asserts(PackerDriver._instance, 'PackerDriver is not created yet. Please call PackerDriver.create first.');
         return PackerDriver._instance;
+    }
+
+    public static hasInstance(): boolean {
+        return PackerDriver._instance !== null;
     }
 
     /**
@@ -314,6 +320,16 @@ export class PackerDriver {
     }
 
     /**
+     * 源文件刚挪走、资源库刷新还没发出时，同步改掉已跟踪脚本的入口。
+     * 刷新随后触发的编译会再写一次入口；这里保证链接不会先看到旧路径。
+     */
+    public relocateScript(uuid: string, oldFilePath: string, newFilePath: string): void {
+        for (const target of Object.values(this._targets)) {
+            target.relocateScript(uuid, oldFilePath, newFilePath);
+        }
+    }
+
+    /**
      * 从 asset-db 获取所有数据并构建，包含 ts 和 js 脚本。
      * AssetChange format:
      *  {
@@ -346,7 +362,7 @@ export class PackerDriver {
 
         logger.debug(`Fetch asset-db cost: ${t2 - t1}ms.`);
 
-        await this._startBuild(taskId);
+        await this._buildLane.run((allowEmpty) => this._startBuild(taskId, allowEmpty));
     }
 
     public async clearCache() {
@@ -424,6 +440,7 @@ export class PackerDriver {
     private readonly _assetDbInterop: AssetDbInterop;
     private _assetChangeQueue: AssetChange[] = [];
     private _building = false;
+    private _buildLane = new BuildLane();
     private _featureChanged = false;
     private _beforeBuildTasks: (() => void)[] = [];
     private _depsGraph: Record<string, string[]> = {};
@@ -481,60 +498,72 @@ export class PackerDriver {
      * 开始一次构建。
      * @param taskId 任务ID，用于跟踪任务状态
      */
-    private async _startBuild(taskId?: string) {
-        // 目前不能直接跳过，因为调用编译接口时是期望立即执行的，如果跳过会导致编译任务无法执行。
-        // if (this._building) {
-        //     this._logger.debug('Build iteration already started, skip.');
-        //     return;
-        // }
+    private async _startBuild(taskId?: string, allowEmpty = true) {
+        // 进行中的编译不在这里跳过。BuildLane 会把后来的请求收成当前这一轮结束后的唯一一轮，
+        // 空的 compileScripts() 仍然会真正编译。
         this._building = true;
         this._currentTaskId = taskId || null;
-        eventEmitter.emit('compile-start', 'project', taskId);
-
-        this._logger.clear();
-        this._logger.debug(
-            'Build iteration starts.\n' +
-            `Number of accumulated asset changes: ${this._assetChangeQueue.length}\n` +
-            `Feature changed: ${this._featureChanged}` +
-            (taskId ? `\nTask ID: ${taskId}` : ''),
-        );
-        if (this._featureChanged) {
+        let pendingChanges: AssetChange[] | null = null;
+        try {
+            const featureChanged = this._featureChanged;
             this._featureChanged = false;
-            await this._syncEngineFeatures(this._features);
-        }
-        const assetChanges = this._assetChangeQueue;
-        this._assetChangeQueue = [];
-        const beforeTasks = this._beforeBuildTasks.slice();
-        this._beforeBuildTasks.length = 0;
-        for (const beforeTask of beforeTasks) {
-            beforeTask();
-        }
-        await this.beforeEditorBuildDelegate.dispatch(assetChanges.filter(item => item.type === AssetActionEnum.change) as ModifiedAssetChange[]);
-        const nonDTSChanges = assetChanges.filter(item => !item.filePath.endsWith('.d.ts'));
-        
-        let err: Error | null = null;
-        for (const [, target] of Object.entries(this._targets)) {
-            if (assetChanges.length !== 0) {
-                await target.applyAssetChanges(nonDTSChanges);
+            eventEmitter.emit('compile-start', 'project', taskId);
+            this._logger.clear();
+            if (featureChanged) {
+                await this._syncEngineFeatures(this._features);
             }
-            const buildResult = await target.build();
-            if (buildResult.err) {
-                err = buildResult.err;
-                target.deleteCacheFile((err as any).file);
-                continue;
-            }
-            if (buildResult.depsGraph) {
-                this._depsGraph = buildResult.depsGraph;
-            }
-            this._needUpdateDepsCache = true;
-        }
-        this._building = false;
-        this._currentTaskId = null;
+            // 特性同步若抛错，队列还留在这里，交给后续那一轮。同步期间新到的变更也算进当前轮。
+            pendingChanges = this._assetChangeQueue.splice(0, this._assetChangeQueue.length);
+            const assetChanges = pendingChanges;
+            const beforeTasks = this._beforeBuildTasks.slice();
+            this._beforeBuildTasks.length = 0;
 
-        eventEmitter.emit('compiled', 'project');
+            this._logger.debug(
+                'Build iteration starts.\n' +
+                `Number of accumulated asset changes: ${assetChanges.length}\n` +
+                `Feature changed: ${featureChanged}` +
+                (allowEmpty ? '' : '\nCoalesced follow-up') +
+                (taskId ? `\nTask ID: ${taskId}` : ''),
+            );
+            for (const beforeTask of beforeTasks) {
+                beforeTask();
+            }
+            await this.beforeEditorBuildDelegate.dispatch(assetChanges.filter(item => item.type === AssetActionEnum.change) as ModifiedAssetChange[]);
+            const nonDTSChanges = assetChanges.filter(item => !item.filePath.endsWith('.d.ts'));
 
-        if (err) {
-            throw err;
+            let err: Error | null = null;
+            for (const [, target] of Object.entries(this._targets)) {
+                if (assetChanges.length !== 0) {
+                    await target.applyAssetChanges(nonDTSChanges);
+                }
+                const buildResult = await target.build();
+                if (buildResult.err) {
+                    err = buildResult.err;
+                    target.deleteCacheFile((err as any).file);
+                    continue;
+                }
+                if (buildResult.depsGraph) {
+                    this._depsGraph = buildResult.depsGraph;
+                }
+                this._needUpdateDepsCache = true;
+            }
+
+            pendingChanges = null;
+            this._building = false;
+            this._currentTaskId = null;
+            eventEmitter.emit('compiled', 'project');
+
+            if (err) {
+                throw err;
+            }
+        } catch (error) {
+            if (pendingChanges && pendingChanges.length > 0) {
+                this._assetChangeQueue.unshift(...pendingChanges);
+            }
+            throw error;
+        } finally {
+            this._building = false;
+            this._currentTaskId = null;
         }
     }
 
@@ -865,13 +894,19 @@ class PackTarget {
         }
     }
 
-    private async _build(): Promise<BuildResult> {
-        const prerequisiteAssetMods = await this._getPrerequisiteAssetModsWithFilter();
-        const buildEntries = [
+    private _collectBuildEntries(): string[] {
+        if (this._entryStale) {
+            this._entryStale = false;
+            this._rewriteEntrySource();
+        }
+        return [
             engineIndexModURL,
             prerequisiteImportsModURL,
-            ...prerequisiteAssetMods,
+            ...Array.from(this._prerequisiteAssetMods).sort(),
         ];
+    }
+
+    private async _build(): Promise<BuildResult> {
         const cleanResolution = this._cleanResolutionNextTime;
         if (cleanResolution) {
             this._cleanResolutionNextTime = false;
@@ -881,6 +916,8 @@ class PackTarget {
         }
         let buildResult: BuildResult = {};
         await wrapToSetImmediateQueue(this, async () => {
+            // setImmediate 间隙里可能刚发生脚本移动。链接开始前再对一次入口，不在 quickPack.build 进行中改源码。
+            const buildEntries = this._collectBuildEntries();
             buildResult = await this._quickPack.build(buildEntries, {
                 retryResolutionOnUnchangedModule: this._firstBuild,
                 cleanResolution: cleanResolution,
@@ -896,6 +933,25 @@ class PackTarget {
         this._firstBuild = true;
     }
 
+    public relocateScript(uuid: string, oldFilePath: string, newFilePath: string): void {
+        const edit = relocateScriptModule(this._registry(), uuid, oldFilePath, newFilePath);
+        if (!edit.added && edit.removed.length === 0) {
+            return;
+        }
+        for (const href of edit.removed) {
+            this._modLo.unsetUUID(href);
+        }
+        if (edit.added) {
+            this._modLo.setUUID(edit.added, uuid);
+        }
+        // 链接进行中只改注册表。改内存模块源码会碰到正在链接的入口。
+        if (this._buildStarted) {
+            this._entryStale = true;
+            return;
+        }
+        this._rewriteEntrySource();
+    }
+
     public async applyAssetChanges(changes: readonly AssetChange[]) {
         // 如果正在构建，等待构建完成
         if (this._buildPromise) {
@@ -903,48 +959,47 @@ class PackTarget {
             await this._buildPromise;
         }
         this._ensureIdle();
+        const registry = this._registry();
         for (const change of changes) {
             const uuid = change.uuid;
-            // Note: "modified" directive is decomposed as "remove" and "add".
-            if (change.type === AssetActionEnum.change ||
-                change.type === AssetActionEnum.delete) {
-                const oldURL = this._uuidURLMap.get(uuid);
-                if (!oldURL) {
-                    // As of now, we receive an asset modifying or changing directive
-                    // but the asset was not processed by us before.
-                    // This however can only happen when:
-                    // - the asset is removed, and it's an plugin script;
-                    // - the asset is modified from plugin script to non-plugin-script.
-                    // Otherwise, something went wrong.
-                    // But we could not distinguish the second reason from
-                    // "received an error asset change directive"
-                    // since we don't know the asset's previous status. So we choose to skip this check.
-                    // this._logger.warn(`Unexpected: ${uuid} is not in registry.`);
-                } else {
-                    this._uuidURLMap.delete(uuid);
-                    this._modLo.unsetUUID(oldURL);
-                    const deleted = this._prerequisiteAssetMods.delete(oldURL);
-                    if (!deleted) {
-                        this._logger.warn(`Unexpected: ${oldURL} is not in registry.`);
-                    }
+            if (change.type === AssetActionEnum.delete) {
+                const edit = applyScriptDelete(registry, uuid, change.url.href);
+                for (const href of edit.removed) {
+                    this._modLo.unsetUUID(href);
                 }
+                continue;
             }
             if (change.type === AssetActionEnum.change ||
                 change.type === AssetActionEnum.add) {
-                if (change.isPluginScript) {
-                    continue;
+                const edit = applyScriptUpsert(
+                    registry,
+                    uuid,
+                    change.url.href,
+                    change.type === AssetActionEnum.change,
+                    change.type === AssetActionEnum.change ? (change as ModifiedAssetChange).oldFilePath : undefined,
+                    change.isPluginScript,
+                );
+                for (const href of edit.removed) {
+                    this._modLo.unsetUUID(href);
                 }
-                const { href: url } = change.url;
-                this._uuidURLMap.set(uuid, url);
-                this._modLo.setUUID(url, uuid);
-                this._prerequisiteAssetMods.add(url);
+                if (edit.added) {
+                    this._modLo.setUUID(edit.added, uuid);
+                }
             }
         }
+        this._rewriteEntrySource();
+    }
 
-        // Update the import main module
-        const prerequisiteImports = await this._getPrerequisiteAssetModsWithFilter();
+    private _registry(): ScriptModuleRegistry {
+        return {
+            urls: this._prerequisiteAssetMods,
+            uuidToUrl: this._uuidURLMap,
+        };
+    }
+
+    private _rewriteEntrySource() {
+        const prerequisiteImports = Array.from(this._prerequisiteAssetMods).sort();
         const source = (this._tentativePrerequisiteImportsMod ? makeTentativePrerequisiteImports : makePrerequisiteImportsMod)(prerequisiteImports);
-
         console.time('update entry mod');
         if (OPTIMIZE_ENTRY_SOURCE_COMPILATION) {
             // 注意：.source 是一个 setter，其内部会更新 timestamp，导致每次都重新编译入口文件，如果项目比较大，入口文件的编译会非常耗时。
@@ -1025,6 +1080,7 @@ class PackTarget {
 
     private _dbInfos: DBInfo[] = [];
     private _buildStarted = false;
+    private _entryStale = false;
     private _buildPromise: Promise<BuildResult> | null = null;
     private _ready = false;
     private _name: string;
@@ -1043,11 +1099,6 @@ class PackTarget {
     private _respectToFeatureSetting: boolean;
     private _tentativePrerequisiteImportsMod: boolean;
     private _userImportMap: ImportMapWithURL | undefined;
-
-    private async _getPrerequisiteAssetModsWithFilter() {
-        const prerequisiteAssetMods = Array.from(this._prerequisiteAssetMods).sort();
-        return prerequisiteAssetMods;
-    }
 
     private _ensureIdle() {
         asserts(!this._buildStarted, 'Build is in progress, but a status change request is filed');

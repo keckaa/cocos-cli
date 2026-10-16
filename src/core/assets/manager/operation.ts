@@ -16,6 +16,7 @@ import { copyAssetSource } from './asset-copy';
 import { copyPath, moveAssetSource, removeAssetSource, renamePath } from './filesystem';
 import i18n from '../../base/i18n';
 import assetQuery, { ASSET_TREE_INFO_DATA_KEYS } from './query';
+import scripting from '../../scripting';
 import utils from '../../base/utils';
 import EventEmitter from 'events';
 import { mergeMeta } from '../asset-handler/utils';
@@ -840,6 +841,13 @@ class AssetOperation extends EventEmitter {
         const affectedGraphs = this._queryAnimationGraphAssetsAt(source, target);
         await this._runAnimationGraphExternalWrites(affectedGraphs, async () => {
             await moveAssetSource(source, target, option);
+            // 刷新是后续宏任务。先改编译入口，避免链接还指向挪走前的文件。
+            // 这里失败不能挡住刷新，否则文件已经挪走，资源库却不会重新导入。
+            try {
+                scripting.relocateScript(asset.uuid, source, target);
+            } catch (error) {
+                console.error(`relocate script module failed: ${source} -> ${target}`, error);
+            }
 
             const url = queryUrl(target);
             const reg = /db:\/\/[^/]+/.exec(url);
