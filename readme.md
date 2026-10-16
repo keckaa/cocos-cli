@@ -44,7 +44,7 @@ For native development, please refer to the [Native Development Setup Guide](htt
    npm link
    ```
 
-   `npm run resolve-engine` reads the 3.8.8 JavaScript engine selected in the local Cocos Creator settings and writes it to `engine` in `config.local.json`.
+   `npm run resolve-engine` reads the 3.8.8 JavaScript engine selected in the local Cocos Creator settings and writes it to `engine` in `config.local.json`. If that directory is a git repository, it then runs `git pull --ff-only` and finishes only after the pull returns.
 
 3. **Update**
 

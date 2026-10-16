@@ -132,6 +132,47 @@ describe('resolveAndWrite', () => {
         expect(readConfig(workspace)).toEqual({ project: 'keep-me' });
     });
 
+    test('引擎是 git 仓库时，写完配置再拉取', () => {
+        writeJson(join(home, '.CocosCreator', 'profiles', 'v2', 'packages', 'engine.json'), {
+            engine: { '388': { javascript: { builtin: false, custom: engine } } },
+        });
+        mkdirSync(join(engine, '.git'));
+        const order: string[] = [];
+        const pullGit = () => {
+            order.push('pull');
+            expect(readConfig(workspace).engine).toBe(engine.replace(/\\/g, '/'));
+        };
+
+        resolveAndWrite(home, workspace, { pullGit });
+
+        expect(order).toEqual(['pull']);
+    });
+
+    test('引擎不是 git 仓库时不拉取', () => {
+        writeJson(join(home, '.CocosCreator', 'profiles', 'v2', 'packages', 'engine.json'), {
+            engine: { '388': { javascript: { builtin: false, custom: engine } } },
+        });
+        const pullGit = jest.fn();
+
+        resolveAndWrite(home, workspace, { pullGit });
+
+        expect(pullGit).not.toHaveBeenCalled();
+    });
+
+    test('拉取失败时配置已写入，并中断后续步骤', () => {
+        writeJson(join(home, '.CocosCreator', 'profiles', 'v2', 'packages', 'engine.json'), {
+            engine: { '388': { javascript: { builtin: false, custom: engine } } },
+        });
+        mkdirSync(join(engine, '.git'));
+
+        expect(() => resolveAndWrite(home, workspace, {
+            pullGit: () => {
+                throw new ResolveEngineError('拉取引擎失败 (exit 1)');
+            },
+        })).toThrow(/拉取引擎失败/);
+        expect(readConfig(workspace).engine).toBe(engine.replace(/\\/g, '/'));
+    });
+
     test('没有 388 的 javascript 设置时退出', () => {
         writeJson(join(home, '.CocosCreator', 'profiles', 'v2', 'packages', 'engine.json'), {
             engine: { '380': { native: { builtin: true } } },

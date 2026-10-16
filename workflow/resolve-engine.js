@@ -5,6 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const REQUIRED_ENGINE_VERSION = '3.8.8';
 
@@ -116,9 +117,34 @@ function writeEngineConfig(workspace, enginePath) {
     return config.engine;
 }
 
-function resolveAndWrite(homeDir, workspace) {
+function isGitRepository(dir) {
+    return fs.existsSync(path.join(dir, '.git'));
+}
+
+function pullGitRepository(enginePath) {
+    console.log(`>> git pull --ff-only: ${enginePath}`);
+    const result = spawnSync('git', ['-C', enginePath, 'pull', '--ff-only'], { stdio: 'inherit' });
+    if (result.error) {
+        throw new ResolveEngineError(`无法执行 git pull: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+        throw new ResolveEngineError(`拉取引擎失败 (exit ${result.status}): ${enginePath}`);
+    }
+}
+
+function pullEngineIfRepository(enginePath, pullGit = pullGitRepository) {
+    if (!isGitRepository(enginePath)) {
+        console.log(`引擎不是 git 仓库，跳过拉取: ${enginePath}`);
+        return;
+    }
+    pullGit(enginePath);
+}
+
+function resolveAndWrite(homeDir, workspace, options = {}) {
     const enginePath = assertEngineVersion(resolveJavascriptEngine(homeDir));
-    return writeEngineConfig(workspace, enginePath);
+    const written = writeEngineConfig(workspace, enginePath);
+    pullEngineIfRepository(enginePath, options.pullGit);
+    return written;
 }
 
 function main() {

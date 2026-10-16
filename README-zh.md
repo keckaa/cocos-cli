@@ -44,7 +44,7 @@
    npm link
    ```
 
-   `npm run resolve-engine` 读取本机 Cocos Creator 当前选中的 3.8.8 JavaScript 引擎，写入 `config.local.json` 的 `engine`。
+   `npm run resolve-engine` 读取本机 Cocos Creator 当前选中的 3.8.8 JavaScript 引擎，写入 `config.local.json` 的 `engine`。若该目录是 git 仓库，再执行 `git pull --ff-only`，拉取结束后命令才结束。
 
 3. **更新**
 
