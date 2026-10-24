@@ -4,9 +4,9 @@ import { McpMiddleware } from './mcp.middleware';
 import { serverService } from '../server/server';
 import chalk from 'chalk';
 
-export async function startServer(folder: string, port?: number) {
+export async function startServer(folder: string, port?: number, options: { managed?: boolean; strictPort?: boolean } = {}) {
     const cocosAPI = await CocosAPI.create();
-    await cocosAPI.startup(folder, port);
+    await cocosAPI.startup(folder, port, options);
     const middleware = new McpMiddleware();
     register('mcp', middleware.getMiddlewareContribution());
     const mcpUrl = `${serverService.url}/mcp`;

@@ -3,6 +3,7 @@ import { BuildExitCode, IBuildCommandOption, Platform } from './builder/@types/p
 import utils from './base/utils';
 import { newConsole } from './base/console';
 import { startServer, getServerUrl } from '../server';
+import { serverService } from '../server/server';
 import { GlobalConfig, GlobalPaths } from '../global';
 import scripting from './scripting';
 import { startupScene } from './scene';
@@ -81,9 +82,13 @@ export default class Launcher {
     /**
      * 启动项目
      */
-    async startup(port?: number) {
+    async startup(port?: number, options: { managed?: boolean; strictPort?: boolean } = {}) {
         await this.import();
-        await startServer(port);
+        await startServer(port, undefined, { strictPort: options.strictPort ?? options.managed });
+        if (options.managed) {
+            const { beginManagedSession } = await import('../mcp/managed-session');
+            beginManagedSession(this.projectPath, serverService.port);
+        }
         // 初始化构建
         const { init: initBuilder } = await import('./builder');
         await initBuilder();

@@ -21,6 +21,11 @@ interface ServerOptions {
     caFile?: string;// 证书的签发请求文件 csr
 }
 
+export interface ServerStartOptions {
+    /** Reject an occupied preferred port instead of selecting a fallback port. */
+    strictPort?: boolean;
+}
+
 export class ServerService {
     private app: Express = express();
     private server: HTTPServer | HTTPSServer | undefined;
@@ -49,14 +54,23 @@ export class ServerService {
         return this._port;
     }
 
-    async start(port?: number, host?: string) {
+    async start(port?: number, host?: string, options: ServerStartOptions = {}) {
         console.log('🚀 开始启动服务器...');
         this.init();
         if (host) {
             this._host = host;
         }
-        const preferredPort = await getAvailablePort(port || this._port);
-        const { server, port: actualPort } = await this.createServerWithRetry(preferredPort, host);
+        const preferredPort = options.strictPort ? (port || this._port) : await getAvailablePort(port || this._port);
+        const { server, port: actualPort } = options.strictPort
+            ? { server: await this.createServer({
+                port: preferredPort,
+                host,
+                useHttps: this.useHttps,
+                keyFile: this.httpsConfig.key,
+                certFile: this.httpsConfig.cert,
+                caFile: this.httpsConfig.ca,
+            }, this.app), port: preferredPort }
+            : await this.createServerWithRetry(preferredPort, host);
         this._port = actualPort;
         this.server = server;
         socketService.startup(this.server);
@@ -66,8 +80,11 @@ export class ServerService {
     }
 
     async stop(): Promise<void> {
+        if (!this.server) {
+            return;
+        }
         return new Promise((resolve, reject) => {
-            this.server?.close((err?: Error) => {
+            this.server!.close((err?: Error) => {
                 if (err) {
                     reject(err);
                     return;
