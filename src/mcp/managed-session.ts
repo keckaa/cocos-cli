@@ -99,19 +99,27 @@ function getEngineMetadata(enginePath: string): { creatorVersion: string; engine
     };
 }
 
-function resolveProjectIdentity(projectPath: string): { projectPath: string; projectIdentity: string; projectJsonDigest: string } {
+export function resolveProjectIdentity(projectPath: string): { projectPath: string; projectIdentity: string; projectJsonDigest: string } {
     const projectRealpath = realpathSync(resolve(projectPath));
     const projectJsonPath = join(projectRealpath, 'project.json');
-    if (!existsSync(projectJsonPath)) {
-        throw new ManagedSessionError(`Managed project is missing project.json: ${projectRealpath}`, 400);
+    // Creator 3.8.8 projects use package.json as their project descriptor;
+    // project.json is retained only for older fixtures/engines.
+    const projectConfigPath = existsSync(projectJsonPath)
+        ? projectJsonPath
+        : join(projectRealpath, 'package.json');
+    if (!existsSync(projectConfigPath)) {
+        throw new ManagedSessionError(`Managed project is missing project.json or package.json: ${projectRealpath}`, 400);
     }
-    const projectJson = readFileSync(projectJsonPath);
-    const projectJsonDigest = sha256(projectJson);
+    const projectConfig = readFileSync(projectConfigPath);
+    const projectJsonDigest = sha256(projectConfig);
+    const identityPayload = projectConfigPath === projectJsonPath
+        ? { path: projectRealpath, projectJsonDigest }
+        : { path: projectRealpath, projectPackageDigest: projectJsonDigest };
     return {
         projectPath: projectRealpath,
-        // Include the canonical path so two copies with identical project.json files
+        // Include the canonical path so two copies with identical descriptors
         // cannot accidentally share a managed session identity.
-        projectIdentity: sha256(stableJson({ path: projectRealpath, projectJsonDigest })),
+        projectIdentity: sha256(stableJson(identityPayload)),
         projectJsonDigest,
     };
 }
