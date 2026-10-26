@@ -22,22 +22,40 @@ import EventEmitter from 'events';
 import { mergeMeta } from '../asset-handler/utils';
 import * as lodash from 'lodash';
 
-const REIMPORT_BUSY_TIMEOUT_MS = 10_000;
+// Importers such as textures may spend longer than the normal MCP request
+// timeout while AssetDB is already processing another change. Keep a bounded
+// wait here, but leave enough room for a single Creator import to finish.
+const REIMPORT_BUSY_TIMEOUT_MS = 60_000;
 
-function waitForAssetInit(asset: IAsset, timeoutMs: number, pathOrUrlOrUUID: string): Promise<void> {
+function waitForAssetInit(asset: IAsset, timeoutMs: number): Promise<boolean> {
     return new Promise((resolve, reject) => {
+        let settled = false;
         const timer = setTimeout(() => {
-            reject(new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`));
+            // Resolve the wait as incomplete instead of rejecting immediately.
+            // The import promise can complete in the same event-loop turn; the
+            // caller performs a final `asset.init` check before reporting a
+            // timeout so a completed import never gets a failure receipt.
+            settled = true;
+            resolve(false);
         }, timeoutMs);
 
         asset.waitInit().then(() => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timer);
-            resolve();
+            resolve(true);
         }, (error) => {
+            if (settled) return;
+            settled = true;
             clearTimeout(timer);
             reject(error);
         });
     });
+}
+
+function isCompletedAsset(asset: IAsset): boolean {
+    return (asset as any).meta?.imported === true
+        && asset.invalid !== true;
 }
 
 function isScriptAsset(asset: IAsset) {
@@ -796,16 +814,31 @@ class AssetOperation extends EventEmitter {
             if (!existingAsset) {
                 throw new Error(`无法找到资源 ${pathOrUrlOrUUID}, 请检查参数是否正确`);
             }
+            // AssetDB can publish the completed meta/library result before its
+            // internal `init` flag is released. The public asset-info query is
+            // the durable completion signal used by managed receipts; accept
+            // it here instead of waiting for an internal promise that may be
+            // held by an unrelated bundle-start task.
+            const publishedInfo = assetQuery.queryAssetInfo(pathOrUrlOrUUID);
+            if (publishedInfo && publishedInfo.imported === true && publishedInfo.invalid !== true) {
+                return publishedInfo;
+            }
             busyDeadline ||= Date.now() + REIMPORT_BUSY_TIMEOUT_MS;
             const remainingTime = busyDeadline - Date.now();
             if (remainingTime <= 0) {
                 throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
             }
             if (!existingAsset.init) {
-                await waitForAssetInit(existingAsset, remainingTime, pathOrUrlOrUUID);
+                const initialized = await waitForAssetInit(existingAsset, remainingTime);
+                if (!initialized && !isCompletedAsset(existingAsset)) {
+                    throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
+                }
             }
-            if (Date.now() >= busyDeadline) {
+            if (Date.now() >= busyDeadline && !isCompletedAsset(existingAsset)) {
                 throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
+            }
+            if (!existingAsset.init && isCompletedAsset(existingAsset)) {
+                return assetQuery.encodeAsset(existingAsset, ASSET_TREE_INFO_DATA_KEYS);
             }
             asset = await reimport(pathOrUrlOrUUID);
         }
@@ -828,8 +861,9 @@ class AssetOperation extends EventEmitter {
 
     private async _moveAsset(source: string, target: string, option?: AssetOperationOption) {
         console.debug(`start move asset from ${source} -> ${target}...`);
-        if (target.startsWith('db://')) {
-            target = url2path(target);
+        const targetUrl = this._pathToDbUrlIfInsideAssetDB(target);
+        if (targetUrl.startsWith('db://')) {
+            target = url2path(targetUrl);
         }
         const asset = assetQuery.queryAsset(source);
         if (!asset) {
