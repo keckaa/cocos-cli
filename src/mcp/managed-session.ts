@@ -4,11 +4,14 @@ import { existsSync, readFileSync, realpathSync } from 'fs';
 import { join, resolve } from 'path';
 import { GlobalPaths } from '../global';
 import pkgJson from '../../package.json';
+import { assetDBManager } from '../core/assets';
+import { isPreviewSettingsReady } from '../core/preview/preview-settings';
 
-export const MANAGED_CAPABILITY_VERSION = '1.0.0';
+export const MANAGED_CAPABILITY_VERSION = '1.1.0';
 
 export const MANAGED_CAPABILITIES = [
     'managed-session-probe',
+    'managed-session-readiness',
     'managed-assets-query',
     'managed-assets-import',
     'managed-assets-create',
@@ -33,6 +36,17 @@ export interface ManagedSessionProbe {
     pid: number;
     sessionNonce: string;
     schemaDigest: string;
+}
+
+export interface ManagedSessionReadiness {
+    sessionNonce: string;
+    projectIdentity: string;
+    projectRealpath: string;
+    assetDbReady: boolean;
+    assetDbBusy: boolean;
+    previewReady: boolean;
+    ready: boolean;
+    diagnostics: string[];
 }
 
 export interface ManagedSessionRequest {
@@ -153,6 +167,45 @@ export function getManagedSessionProbe(): ManagedSessionProbe {
     }
     const { projectJsonDigest: _projectJsonDigest, ...probe } = currentSession;
     return { ...probe, capabilities: [...probe.capabilities] };
+}
+
+/**
+ * Return a conservative readiness signal for strict managed mutations. AssetDB
+ * ready/idle is necessary but insufficient: the preview settings probe also
+ * verifies that the internal bundle and builtinAssets are actually usable.
+ */
+export async function getManagedSessionReadiness(): Promise<ManagedSessionReadiness> {
+    if (!currentSession) {
+        throw new ManagedSessionError('Managed session is not initialized', 503);
+    }
+    const assetDbReady = assetDBManager.ready === true;
+    const assetDbBusy = assetDbReady ? assetDBManager.isBusy() : false;
+    let previewReady = false;
+    const diagnostics: string[] = [];
+    if (!assetDbReady) {
+        diagnostics.push('AssetDB is not ready');
+    }
+    if (assetDbBusy) {
+        diagnostics.push('AssetDB is busy');
+    }
+    if (assetDbReady && !assetDbBusy) {
+        try {
+            previewReady = await isPreviewSettingsReady();
+        } catch (error) {
+            diagnostics.push(`Preview settings readiness probe failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (!previewReady) diagnostics.push('Preview settings/builtin bundle is not ready');
+    }
+    return {
+        sessionNonce: currentSession.sessionNonce,
+        projectIdentity: currentSession.projectIdentity,
+        projectRealpath: currentSession.projectPath,
+        assetDbReady,
+        assetDbBusy,
+        previewReady,
+        ready: assetDbReady && !assetDbBusy && previewReady,
+        diagnostics,
+    };
 }
 
 export function getManagedSessionState(): Readonly<ManagedSessionState> | null {

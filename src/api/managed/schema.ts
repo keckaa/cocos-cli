@@ -86,6 +86,17 @@ export const SchemaManagedSessionProbe = z.object({
     schemaDigest: z.string().min(1),
 });
 
+export const SchemaManagedSessionReadiness = z.object({
+    sessionNonce: z.string().min(1),
+    projectIdentity: z.string().min(1),
+    projectRealpath: z.string().min(1),
+    assetDbReady: z.boolean(),
+    assetDbBusy: z.boolean(),
+    previewReady: z.boolean(),
+    ready: z.boolean(),
+    diagnostics: z.array(z.string()),
+});
+
 export const SchemaImportReceiptAsset = z.object({
     name: z.string().optional(),
     source: z.string().optional(),
@@ -121,5 +132,6 @@ export const SchemaImportReceipt = z.object({
 
 export type ManagedSessionProbeRequest = z.infer<typeof SchemaManagedSessionProbeRequest>;
 export type ManagedRequest = z.infer<typeof SchemaManagedRequest>;
+export type ManagedSessionReadiness = z.infer<typeof SchemaManagedSessionReadiness>;
 export type ManagedExpectedAsset = z.infer<typeof SchemaManagedExpectedAsset>;
 export type ImportReceipt = z.infer<typeof SchemaImportReceipt>;

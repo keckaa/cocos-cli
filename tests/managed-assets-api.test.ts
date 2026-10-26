@@ -85,11 +85,21 @@ jest.mock('../src/core/assets', () => ({
 jest.mock('../src/mcp/managed-session', () => ({
     ManagedSessionError: MockManagedSessionError,
     getManagedSessionProbe: () => mockProbe,
+    getManagedSessionReadiness: jest.fn(async () => ({
+        sessionNonce: mockProbe.sessionNonce,
+        projectIdentity: mockProbe.projectIdentity,
+        projectRealpath: mockProbe.projectPath,
+        assetDbReady: true,
+        assetDbBusy: false,
+        previewReady: true,
+        ready: true,
+        diagnostics: [],
+    })),
     assertManagedRequest: jest.fn(() => mockProbe),
 }));
 
 import { ManagedAssetsApi } from '../src/api/managed/managed';
-import { assertManagedRequest } from '../src/mcp/managed-session';
+import { assertManagedRequest, getManagedSessionReadiness } from '../src/mcp/managed-session';
 
 function request(extra: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -106,6 +116,36 @@ describe('ManagedAssetsApi fixture operations', () => {
     beforeEach(() => {
         fixtureAssets.clear();
         jest.mocked(assertManagedRequest).mockReset().mockImplementation(() => mockProbe);
+        jest.mocked(getManagedSessionReadiness).mockReset().mockResolvedValue({
+            sessionNonce: mockProbe.sessionNonce,
+            projectIdentity: mockProbe.projectIdentity,
+            projectRealpath: mockProbe.projectPath,
+            assetDbReady: true,
+            assetDbBusy: false,
+            previewReady: true,
+            ready: true,
+            diagnostics: [],
+        });
+    });
+
+    it('returns an explicit 503 readiness response while AssetDB is not ready or busy', async () => {
+        jest.mocked(getManagedSessionReadiness).mockResolvedValue({
+            sessionNonce: mockProbe.sessionNonce,
+            projectIdentity: mockProbe.projectIdentity,
+            projectRealpath: mockProbe.projectPath,
+            assetDbReady: false,
+            assetDbBusy: false,
+            previewReady: false,
+            ready: false,
+            diagnostics: ['AssetDB is not ready'],
+        });
+        const response = await api.sessionReadiness(request() as any);
+        expect(response.code).toBe(503);
+        expect(response.data?.ready).toBe(false);
+        expect(response.reason).toMatch(/not ready/);
+        const blocked = await api.query(request({ path: 'assets/blocked.png' }));
+        expect(blocked.code).toBe(503);
+        expect(blocked.data).toBeUndefined();
     });
 
     it('executes create/import/replace/reimport/move/delete/query with stable receipts', async () => {

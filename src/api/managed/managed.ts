@@ -14,8 +14,10 @@ import {
     SchemaManagedPath,
     SchemaManagedQuery,
     SchemaManagedReplace,
+    SchemaManagedRequest,
     SchemaManagedSessionProbe,
     SchemaManagedSessionProbeRequest,
+    SchemaManagedSessionReadiness,
     type ImportReceipt,
     type ManagedExpectedAsset,
     type ManagedRequest,
@@ -23,9 +25,11 @@ import {
 } from './schema';
 import {
     assertManagedRequest,
+    getManagedSessionReadiness,
     getManagedSessionProbe,
     ManagedSessionError,
     type ManagedSessionProbe,
+    type ManagedSessionReadiness,
 } from '../../mcp/managed-session';
 
 type ManagedResult<T> = {
@@ -146,6 +150,22 @@ export class ManagedAssetsApi {
             const probe = getManagedSessionProbe();
             this.assertProbeExpectations(probe, request);
             return { code: HTTP_STATUS.OK, data: probe };
+        } catch (error) {
+            return { code: statusForError(error), reason: errorMessage(error) };
+        }
+    }
+
+    @tool('managed-session-readiness')
+    @title('Probe Managed Cocos Session Readiness')
+    @description('Return whether the bound Creator AssetDB is ready and idle. The response is HTTP 503 while initialization or another AssetDB operation is still active, so callers must wait before mutating assets.')
+    @result(SchemaManagedSessionReadiness)
+    async sessionReadiness(@param(SchemaManagedRequest) request: ManagedRequest): Promise<ManagedResult<ManagedSessionReadiness>> {
+        try {
+            assertManagedRequest(request);
+            const readiness = await getManagedSessionReadiness();
+            return readiness.ready
+                ? { code: HTTP_STATUS.OK, data: readiness }
+                : { code: HTTP_STATUS.SERVICE_UNAVAILABLE, data: readiness, reason: readiness.diagnostics.join('; ') };
         } catch (error) {
             return { code: statusForError(error), reason: errorMessage(error) };
         }
@@ -332,6 +352,10 @@ export class ManagedAssetsApi {
         let probe: ManagedSessionProbe;
         try {
             probe = assertManagedRequest(request);
+            const readiness = await getManagedSessionReadiness();
+            if (!readiness.ready) {
+                throw new ManagedSessionError(`Managed AssetDB is not ready: ${readiness.diagnostics.join('; ')}`, 503);
+            }
         } catch (error) {
             return { code: statusForError(error), reason: errorMessage(error) };
         }
