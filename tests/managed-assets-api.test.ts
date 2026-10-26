@@ -39,7 +39,7 @@ function asset(path: string, overrides: FixtureAsset = {}): FixtureAsset {
         invalid: false,
         type: 'cc.Texture2D',
         isDirectory: false,
-        library: { json: `/library/${path}.json` },
+        library: { json: `db://library/${path}.json` },
         depends: [],
         ...overrides,
     };
@@ -296,5 +296,22 @@ describe('ManagedAssetsApi fixture operations', () => {
         expect(missing.code).toBe(409);
         expect(missing.data?.status).toBe('failed');
         expect(missing.data?.diagnostics[0]).toMatch(/depend/i);
+
+        seed('assets/incomplete-dependency.png', { depends: ['incomplete-dependency'] });
+        seed('incomplete-dependency', { uuid: 'incomplete-dependency', imported: false, invalid: false });
+        const incompleteDependency = await api.query(request({ path: 'assets/incomplete-dependency.png' }));
+        expect(incompleteDependency.code).toBe(409);
+        expect(incompleteDependency.data?.diagnostics[0]).toMatch(/incomplete|invalid/i);
+
+        seed('assets/cycle-a.png', { uuid: 'cycle-a', depends: ['cycle-b'] });
+        seed('assets/cycle-b.png', { uuid: 'cycle-b', depends: ['cycle-a'] });
+        const cycle = await api.query(request({ path: 'assets/cycle-a.png' }));
+        expect(cycle.code).toBe(409);
+        expect(cycle.data?.diagnostics[0]).toMatch(/cycle/i);
+
+        seed('assets/missing-library.png', { library: { json: '/definitely/missing/library.json' } });
+        const missingLibrary = await api.query(request({ path: 'assets/missing-library.png' }));
+        expect(missingLibrary.code).toBe(409);
+        expect(missingLibrary.data?.diagnostics[0]).toMatch(/library/i);
     });
 });

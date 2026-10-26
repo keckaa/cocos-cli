@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { realpathSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { resolve } from 'path';
 import { assetManager } from '../../core/assets';
 import type { IAssetInfo } from '../../core/assets/@types/public';
@@ -328,17 +328,63 @@ export class ManagedAssetsApi {
     }
 
     private assertDependencies(asset: any): void {
-        const depends = Array.isArray(asset?.depends) ? asset.depends : [];
-        const missing = depends.filter((dependency: unknown) => {
-            if (typeof dependency !== 'string' || !dependency) return true;
-            try {
-                return !assetManager.queryAssetInfo(dependency);
-            } catch {
-                return true;
+        const visiting = new Set<string>();
+        const visited = new Set<string>();
+        const walk = (current: any, label: string): void => {
+            if (!current || typeof current !== 'object') {
+                throw new ManagedSessionError(`Managed asset dependency is not resolvable: ${label}`, 409);
             }
-        });
-        if (missing.length > 0) {
-            throw new ManagedSessionError(`Managed asset has missing dependencies: ${missing.join(', ')}`, 409);
+            if (current.imported !== true || current.invalid === true) {
+                throw new ManagedSessionError(`Managed asset dependency is incomplete or invalid: ${label}`, 409);
+            }
+            this.assertLibraryLocators(current, label);
+            const identity = typeof current.uuid === 'string' && current.uuid ? current.uuid : label;
+            if (visiting.has(identity)) {
+                throw new ManagedSessionError(`Managed asset dependency cycle detected: ${identity}`, 409);
+            }
+            if (visited.has(identity)) return;
+            visiting.add(identity);
+            const depends = current.depends;
+            if (depends !== undefined && (!Array.isArray(depends) || depends.some((item: unknown) => typeof item !== 'string' || !item))) {
+                throw new ManagedSessionError(`Managed asset dependency list is invalid: ${identity}`, 409);
+            }
+            for (const dependency of (depends ?? []) as string[]) {
+                let resolved: any = null;
+                try {
+                    resolved = assetManager.queryAssetInfo(dependency);
+                } catch {
+                    resolved = null;
+                }
+                if (!resolved) {
+                    throw new ManagedSessionError(`Managed asset has missing dependency: ${dependency}`, 409);
+                }
+                walk(resolved, dependency);
+            }
+            visiting.delete(identity);
+            visited.add(identity);
+        };
+        walk(asset, typeof asset?.uuid === 'string' ? asset.uuid : 'root');
+    }
+
+    private assertLibraryLocators(asset: any, label: string): void {
+        if (asset.isDirectory === true) return;
+        const library = asset.library;
+        if (!library || typeof library !== 'object' || Array.isArray(library)) {
+            throw new ManagedSessionError(`Managed asset library locator is missing: ${label}`, 409);
+        }
+        const entries = Object.entries(library as Record<string, unknown>);
+        if (entries.length === 0) {
+            throw new ManagedSessionError(`Managed asset library locator is empty: ${label}`, 409);
+        }
+        for (const [extension, value] of entries) {
+            if (typeof value !== 'string' || !value.trim()) {
+                throw new ManagedSessionError(`Managed asset library locator is invalid: ${label}${extension}`, 409);
+            }
+            if (value.startsWith('db://')) continue;
+            const file = resolve(value);
+            if (!existsSync(file)) {
+                throw new ManagedSessionError(`Managed asset library locator is missing: ${label}${extension}`, 409);
+            }
         }
     }
 
