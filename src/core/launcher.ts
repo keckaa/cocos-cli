@@ -81,9 +81,9 @@ export default class Launcher {
     /**
      * 启动项目
      */
-    async startup(port?: number) {
+    async startup(port?: number, options: { strictPort?: boolean } = {}) {
         await this.import();
-        await startServer(port);
+        await startServer(port, undefined, options);
         // 初始化构建
         const { init: initBuilder } = await import('./builder');
         await initBuilder();

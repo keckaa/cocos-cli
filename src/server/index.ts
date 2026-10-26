@@ -1,15 +1,18 @@
-import { serverService } from './server';
+import { serverService, type ServerStartOptions } from './server';
 import { IMiddlewareContribution } from './interfaces';
 
 /**
  * 启动服务器
  */
-export async function startServer(port?: number, host?: string): Promise<void> {
+export async function startServer(port?: number, host?: string, options: ServerStartOptions = {}): Promise<void> {
     try {
         serverService.init();
-        await serverService.start(port, host);
+        await serverService.start(port, host, options);
     } catch (error) {
         console.error(error);
+        if (options.strictPort) {
+            throw error;
+        }
     }
 }
 
@@ -19,6 +22,8 @@ export async function startServer(port?: number, host?: string): Promise<void> {
 export async function stopServer(): Promise<void> {
     try {
         await serverService.stop();
+        const { clearManagedSession } = await import('../mcp/managed-session');
+        clearManagedSession();
     } catch (error) {
         console.error(error);
     }

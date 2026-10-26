@@ -2,11 +2,13 @@ import { CocosAPI } from '../api';
 import { register } from '../server';
 import { McpMiddleware } from './mcp.middleware';
 import { serverService } from '../server/server';
+import { beginManagedSession } from './managed-session';
 import chalk from 'chalk';
 
 export async function startServer(folder: string, port?: number) {
     const cocosAPI = await CocosAPI.create();
-    await cocosAPI.startup(folder, port);
+    await cocosAPI.startup(folder, port, { strictPort: true });
+    beginManagedSession(folder, serverService.port);
     const middleware = new McpMiddleware();
     register('mcp', middleware.getMiddlewareContribution());
     const mcpUrl = `${serverService.url}/mcp`;
