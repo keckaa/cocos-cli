@@ -5,7 +5,6 @@ import type { BuilderApi } from '../api/builder/builder';
 import type { ConfigurationApi } from '../api/configuration/configuration';
 import type { SceneApi } from '../api/scene/scene';
 import type { SystemApi } from '../api/system/system';
-import type { ManagedAssetsApi } from './managed/managed';
 import { SchemaProjectPath, SchemaPort, SchemaProjectType, TProjectPath, TPort, TProjectType } from './schema';
 import { param } from './decorator/decorator';
 import { SchemaPlatform, TPlatform, SchemaBuildOption, TBuildOption, SchemaPlatformCanMake, TPlatformCanMake, SchemaBuildDest, TBuildDest, SchemaUploadAccessToken, TUploadAccessToken } from './builder/schema';
@@ -18,7 +17,6 @@ export class CocosAPI {
     public builder!: BuilderApi;
     public configuration!: ConfigurationApi;
     public system!: SystemApi;
-    public managed!: ManagedAssetsApi;
 
     static async create() {
         const api = new CocosAPI();
@@ -48,8 +46,6 @@ export class CocosAPI {
         this.configuration = new ConfigurationApi();
         const { SystemApi } = await import('../api/system/system');
         this.system = new SystemApi();
-        const { ManagedAssetsApi } = await import('./managed/managed');
-        this.managed = new ManagedAssetsApi();
     }
 
     /**
@@ -58,16 +54,16 @@ export class CocosAPI {
      * @param port 
      */
     public startupMcpServer(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort) {
-        return this.startup(projectPath, port, { strictPort: true });
+        this.startup(projectPath, port);
     }
 
     /**
      * 启动工程
      */
-    public async startup(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort, options?: { strictPort?: boolean }) {
+    public async startup(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort) {
         const { default: Launcher } = await import('../core/launcher');
         const launcher = new Launcher(projectPath);
-        await launcher.startup(port, options);
+        await launcher.startup(port);
     }
 
     /**

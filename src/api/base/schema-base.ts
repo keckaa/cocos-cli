@@ -54,13 +54,13 @@ export const HttpStatusCodeSchema = z.union([
     // z.literal(HTTP_STATUS.FORBIDDEN),
     z.literal(HTTP_STATUS.NOT_FOUND),
     // z.literal(HTTP_STATUS.METHOD_NOT_ALLOWED),
-    z.literal(HTTP_STATUS.CONFLICT),
+    // z.literal(HTTP_STATUS.CONFLICT),
     // z.literal(HTTP_STATUS.UNPROCESSABLE_ENTITY),
     // z.literal(HTTP_STATUS.TOO_MANY_REQUESTS),
     z.literal(HTTP_STATUS.INTERNAL_SERVER_ERROR),
     // z.literal(HTTP_STATUS.NOT_IMPLEMENTED),
     // z.literal(HTTP_STATUS.BAD_GATEWAY),
-    z.literal(HTTP_STATUS.SERVICE_UNAVAILABLE),
+    // z.literal(HTTP_STATUS.SERVICE_UNAVAILABLE),
     // z.literal(HTTP_STATUS.GATEWAY_TIMEOUT),
 ]);
 

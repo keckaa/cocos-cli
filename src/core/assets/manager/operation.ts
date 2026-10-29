@@ -22,40 +22,22 @@ import EventEmitter from 'events';
 import { mergeMeta } from '../asset-handler/utils';
 import * as lodash from 'lodash';
 
-// Importers such as textures may spend longer than the normal MCP request
-// timeout while AssetDB is already processing another change. Keep a bounded
-// wait here, but leave enough room for a single Creator import to finish.
-const REIMPORT_BUSY_TIMEOUT_MS = 60_000;
+const REIMPORT_BUSY_TIMEOUT_MS = 10_000;
 
-function waitForAssetInit(asset: IAsset, timeoutMs: number): Promise<boolean> {
+function waitForAssetInit(asset: IAsset, timeoutMs: number, pathOrUrlOrUUID: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        let settled = false;
         const timer = setTimeout(() => {
-            // Resolve the wait as incomplete instead of rejecting immediately.
-            // The import promise can complete in the same event-loop turn; the
-            // caller performs a final `asset.init` check before reporting a
-            // timeout so a completed import never gets a failure receipt.
-            settled = true;
-            resolve(false);
+            reject(new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`));
         }, timeoutMs);
 
         asset.waitInit().then(() => {
-            if (settled) return;
-            settled = true;
             clearTimeout(timer);
-            resolve(true);
+            resolve();
         }, (error) => {
-            if (settled) return;
-            settled = true;
             clearTimeout(timer);
             reject(error);
         });
     });
-}
-
-function isCompletedAsset(asset: IAsset): boolean {
-    return (asset as any).meta?.imported === true
-        && asset.invalid !== true;
 }
 
 function isScriptAsset(asset: IAsset) {
@@ -814,31 +796,16 @@ class AssetOperation extends EventEmitter {
             if (!existingAsset) {
                 throw new Error(`无法找到资源 ${pathOrUrlOrUUID}, 请检查参数是否正确`);
             }
-            // AssetDB can publish the completed meta/library result before its
-            // internal `init` flag is released. The public asset-info query is
-            // the durable completion signal used by managed receipts; accept
-            // it here instead of waiting for an internal promise that may be
-            // held by an unrelated bundle-start task.
-            const publishedInfo = assetQuery.queryAssetInfo(pathOrUrlOrUUID);
-            if (publishedInfo && publishedInfo.imported === true && publishedInfo.invalid !== true) {
-                return publishedInfo;
-            }
             busyDeadline ||= Date.now() + REIMPORT_BUSY_TIMEOUT_MS;
             const remainingTime = busyDeadline - Date.now();
             if (remainingTime <= 0) {
                 throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
             }
             if (!existingAsset.init) {
-                const initialized = await waitForAssetInit(existingAsset, remainingTime);
-                if (!initialized && !isCompletedAsset(existingAsset)) {
-                    throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
-                }
+                await waitForAssetInit(existingAsset, remainingTime, pathOrUrlOrUUID);
             }
-            if (Date.now() >= busyDeadline && !isCompletedAsset(existingAsset)) {
+            if (Date.now() >= busyDeadline) {
                 throw new Error(`Reimport asset ${pathOrUrlOrUUID} timed out waiting for the current import to finish`);
-            }
-            if (!existingAsset.init && isCompletedAsset(existingAsset)) {
-                return assetQuery.encodeAsset(existingAsset, ASSET_TREE_INFO_DATA_KEYS);
             }
             asset = await reimport(pathOrUrlOrUUID);
         }
