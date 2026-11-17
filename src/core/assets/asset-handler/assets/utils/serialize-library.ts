@@ -1,4 +1,4 @@
-import { AnimationClip, deserialize } from 'cc';
+import { AnimationClip } from 'cc';
 import { CCON, encodeCCONBinary } from 'cc/editor/serialization';
 
 /**
@@ -25,8 +25,8 @@ export function serializeForLibrary(value: unknown): {
             serializeCompiled = false;
             serializeOptions._exporting = false;
             serializeOptions.dontStripDefault = false;
-            // 3.8.8 场景按 .json 读取动画；有 deserialize._macros 的 4.0 仍写 CCON。
-            serializeOptions.useCCON = !!(deserialize as { _macros?: object })._macros;
+            // CCON is supported by dynamic serialization in 3.8.8; _macros is only needed for compiled serialization.
+            serializeOptions.useCCON = true;
             break;
     }
 

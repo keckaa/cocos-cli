@@ -32,7 +32,7 @@ const AnimationHandler: AssetHandler = {
     importer: {
         // 版本号如果变更，则会强制重新导入
         version: '2.0.4',
-        versionCode: 3,
+        versionCode: 4,
 
         /**
          * 如果改名就强制刷新
@@ -81,6 +81,8 @@ const AnimationHandler: AssetHandler = {
                 const { extension, data } = serializeForLibrary(clip);
 
                 await asset.saveToLibrary(extension, data as any);
+                // Reimport can change the library format while retaining persistent export data.
+                asset.setData('output', null);
 
                 const depends = getDependUUIDList(fileContent);
                 asset.setData('depends', depends);

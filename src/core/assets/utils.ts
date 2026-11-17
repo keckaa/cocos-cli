@@ -338,13 +338,14 @@ export function ensureOutputData(asset: IAsset) {
             path: asset.library + '.json',
         },
     };
-    let importPath: string;
+    // A sole .bin is CCON import data; .bin alongside .json remains native data.
+    const isCCON = asset.meta.files.length === 1 && asset.meta.files[0] === '.bin';
     // 生成默认的 debug 版本导出数据
     const nativePath: Record<string, string> = {};
     asset.meta.files.forEach((extName: string) => {
-        if (['.json', '.cconb'].includes(extName)) {
+        if (['.json', '.cconb'].includes(extName) || isCCON) {
             outputData.import.path = asset.library + extName;
-            if (extName === '.cconb') {
+            if (extName === '.cconb' || isCCON) {
                 outputData.import.type = 'buffer';
             }
             return;

@@ -208,7 +208,7 @@ export const GltfHandler: AssetHandlerBase = {
     importer: {
         // 版本号如果变更，则会强制重新导入
         version: '2.3.14',
-        versionCode: 3,
+        versionCode: 4,
 
         /**
          * 实际导入流程

@@ -70,6 +70,11 @@ export function deserialize(json: CCON | Object) {
 }
 
 export function getDeserializeResult(json: CCON | Object) {
+    // Library animations are encoded CCON bytes, not a serialized JS object.
+    if (json instanceof Uint8Array) {
+        const { decodeCCONBinary } = require('cc/editor/serialization') as typeof import('cc/editor/serialization');
+        json = decodeCCONBinary(json);
+    }
     const deserializeDetails = new cc.deserialize.Details();
     deserializeDetails.reset();
     MissingClass.reset();

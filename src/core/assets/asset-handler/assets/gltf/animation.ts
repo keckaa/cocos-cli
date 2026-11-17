@@ -33,7 +33,7 @@ export const GltfAnimationHandler: AssetHandler = {
     importer: {
         // 版本号如果变更，则会强制重新导入
         version: '1.0.19',
-        versionCode: 5,
+        versionCode: 6,
         /**
          * 实际导入流程
          * 需要自己控制是否生成、拷贝文件
@@ -155,8 +155,10 @@ export const GltfAnimationHandler: AssetHandler = {
 
             const { extension, data } = serializeForLibrary(animationClip);
             await asset.saveToLibrary(extension, data as any);
+            // Virtual assets also retain export data when importer versions force a reimport.
+            asset.setData('output', null);
 
-            const depends = getDependUUIDList(data as string);
+            const depends = getDependUUIDList(data);
             asset.setData('depends', Array.from(new Set([...depends, ...customDependencies])));
 
             return true;

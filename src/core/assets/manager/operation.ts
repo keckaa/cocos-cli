@@ -669,7 +669,8 @@ class AssetOperation extends EventEmitter {
 
         // 2. 默认的导出流程
         // 2.1 无序列化数据的，视为引擎运行时无法支持的资源，不导出
-        if (!asset.meta.files.includes('.json') && !asset.meta.files.includes('.cconb')) {
+        const isCCON = asset.meta.files.length === 1 && asset.meta.files[0] === '.bin';
+        if (!asset.meta.files.includes('.json') && !asset.meta.files.includes('.cconb') && !isCCON) {
             return null;
         }
         outputData = ensureOutputData(asset);
