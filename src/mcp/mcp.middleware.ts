@@ -53,7 +53,7 @@ export class McpMiddleware {
     private resourceManager: ResourceManager;
     private builderHook: BuilderHook;
 
-    constructor() {
+    constructor(importDefaults?: { schemaVersion: number; sha256: string | null }) {
         this.builderHook = new BuilderHook();
         // 创建 MCP server
         this.server = new McpServer({
@@ -67,6 +67,7 @@ export class McpMiddleware {
                     templates: true
                 },
                 tools: {},
+                ...(importDefaults ? { experimental: { 'cocos.assetImportDefaults': importDefaults } } : {}),
                 // 日志能力（调试用）
                 logging: {},
             }

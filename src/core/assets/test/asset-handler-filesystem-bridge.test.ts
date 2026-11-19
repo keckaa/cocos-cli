@@ -1,7 +1,14 @@
 export {};
 
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+
 const mockExistsSync = jest.fn();
-const mockOutputJSON = jest.fn();
+const mockOutputFile = jest.fn();
+const mockSetDefaultUserData = jest.fn();
+const mockAssetConfig = { data: { root: '' } };
 const mockCopyPath = jest.fn();
 const mockCreateDirectoryPath = jest.fn();
 const mockWritePath = jest.fn();
@@ -9,7 +16,7 @@ const mockWritePath = jest.fn();
 jest.mock('@cocos/asset-db', () => ({
     Importer: class {},
     Asset: class {},
-    setDefaultUserData: jest.fn(),
+    setDefaultUserData: mockSetDefaultUserData,
     get: jest.fn(() => ({
         importerManager: {
             name2importer: {},
@@ -19,7 +26,7 @@ jest.mock('@cocos/asset-db', () => ({
 
 jest.mock('fs-extra', () => ({
     existsSync: (...args: any[]) => mockExistsSync(...args),
-    outputJSON: (...args: any[]) => mockOutputJSON(...args),
+    outputFile: (...args: any[]) => mockOutputFile(...args),
 }));
 
 jest.mock('../manager/filesystem', () => ({
@@ -34,8 +41,11 @@ jest.mock('../utils', () => ({
 
 jest.mock('../asset-config', () => ({
     __esModule: true,
-    default: {},
+    default: mockAssetConfig,
 }));
+
+jest.mock('../asset-handler/config', () => ({ assetHandlerInfos: [] }));
+jest.mock('../asset-handler', () => ({}));
 
 jest.mock('../../base/i18n', () => ({
     __esModule: true,
@@ -48,13 +58,6 @@ jest.mock('../../base/i18n', () => ({
 jest.mock('fast-glob', () => ({
     __esModule: true,
     default: jest.fn(async () => []),
-}));
-
-jest.mock('lodash', () => ({
-    __esModule: true,
-    default: {
-        set: jest.fn(),
-    },
 }));
 
 jest.mock('eol', () => ({
@@ -122,7 +125,46 @@ describe('asset handler filesystem bridge', () => {
         }, null, 4));
         expect(mockWritePath.mock.calls[2][0]).toBe(asset.source);
         expect(mockWritePath.mock.calls[2][1]).toBe('world');
-        expect(mockOutputJSON).not.toHaveBeenCalled();
+        expect(mockOutputFile).not.toHaveBeenCalled();
+    });
+
+    it('loads saved defaults before activation and preserves them when saving another setting', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'cocos-import-defaults-'));
+        try {
+            mockAssetConfig.data.root = root;
+            const manager = require('../manager/asset-handler').default as typeof import('../manager/asset-handler').default;
+            const file = join(root, '.creator', 'default-meta.json');
+            const compressSettings = { useCompressTexture: true, presetId: 'shared' };
+            const saved = { image: { flipVertical: false, compressSettings }, 'sprite-frame': { trimType: 'none' } };
+            const bytes = Buffer.from(JSON.stringify(saved));
+            await mkdir(join(root, '.creator'));
+            await writeFile(file, bytes);
+            await manager.init();
+            manager.register('test', [{
+                name: 'image',
+                extensions: ['.png'],
+                load: async () => ({
+                    name: 'image', importer: { version: '1.0.0', import: async () => true },
+                    userDataConfig: { default: { flipVertical: { default: true } } },
+                }),
+            }], true);
+            await manager.activateRegisterAll();
+            expect(mockSetDefaultUserData).toHaveBeenLastCalledWith('image', saved.image);
+            expect(manager.importDefaults.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+
+            mockOutputFile.mockRejectedValueOnce(new Error('save failed'));
+            await expect(manager.updateDefaultUserData('image', 'flipVertical', true)).rejects.toThrow('save failed');
+            expect(mockSetDefaultUserData).toHaveBeenCalledTimes(1);
+            expect(manager.importDefaults.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+
+            await manager.updateDefaultUserData('image', 'flipVertical', true);
+            const [writtenPath, written] = mockOutputFile.mock.calls.at(-1)!;
+            expect(writtenPath).toBe(file);
+            expect(JSON.parse(written.toString())).toEqual({ ...saved, image: { flipVertical: true, compressSettings } });
+            expect(manager.importDefaults.sha256).toBe(createHash('sha256').update(written).digest('hex'));
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
     });
 
     it('createAsset should preserve binary content for the filesystem bridge', async () => {

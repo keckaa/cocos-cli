@@ -2,12 +2,13 @@ import { CocosAPI } from '../api';
 import { register } from '../server';
 import { McpMiddleware } from './mcp.middleware';
 import { serverService } from '../server/server';
+import assetHandlerManager from '../core/assets/manager/asset-handler';
 import chalk from 'chalk';
 
 export async function startServer(folder: string, port?: number) {
     const cocosAPI = await CocosAPI.create();
     await cocosAPI.startup(folder, port);
-    const middleware = new McpMiddleware();
+    const middleware = new McpMiddleware(assetHandlerManager.importDefaults);
     register('mcp', middleware.getMiddlewareContribution());
     const mcpUrl = `${serverService.url}/mcp`;
     console.log(chalk.green('✓ MCP Server started successfully!'));

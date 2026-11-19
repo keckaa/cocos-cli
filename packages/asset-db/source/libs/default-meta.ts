@@ -14,7 +14,9 @@ export function fillUserData(name: string, userData: any) {
 
     for (let key in defaultUserData) {
         if (!(key in userData)) {
-            userData[key] = defaultUserData[key];
+            const value = defaultUserData[key];
+            // Importers and per-asset edits can mutate nested metadata.
+            userData[key] = value !== null && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
         }
     }
 }

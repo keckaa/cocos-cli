@@ -1,5 +1,7 @@
 import { Importer as AssetDBImporter, Asset, setDefaultUserData, get } from '@cocos/asset-db';
-import { existsSync, outputJSON } from 'fs-extra';
+import { existsSync, outputFile } from 'fs-extra';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { basename, extname, isAbsolute, join } from 'path';
 import { url2path } from '../utils';
 import lodash from 'lodash';
@@ -68,6 +70,31 @@ class AssetHandlerManager {
     _userDataCache: Record<string, any> = {};
     // 导入器里注册的默认 userData 值， 注册后不可修改
     _defaultUserData: Record<string, any> = {};
+    readonly importDefaults = { schemaVersion: 1, sha256: null as string | null };
+    private defaultUserDataWrite = Promise.resolve();
+
+    private get defaultMetaPath() {
+        return join(assetConfig.data.root, '.creator', 'default-meta.json');
+    }
+
+    private async loadDefaultUserData() {
+        const file = this.defaultMetaPath;
+        try {
+            const bytes = await readFile(file);
+            const data: unknown = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));
+            if (!lodash.isPlainObject(data) || !Object.values(data as object).every(lodash.isPlainObject)) {
+                throw new Error('Expected an object of importer settings');
+            }
+            this._userDataCache = data as Record<string, unknown>;
+            this.importDefaults.sha256 = createHash('sha256').update(bytes).digest('hex');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                throw new Error(`Cannot load asset import defaults from ${file}: ${(error as Error).message}`, { cause: error });
+            }
+            this._userDataCache = {};
+            this.importDefaults.sha256 = null;
+        }
+    }
 
     clear() {
         this.name2handler = {};
@@ -89,6 +116,7 @@ class AssetHandlerManager {
     };
 
     async init() {
+        await this.loadDefaultUserData();
         const { assetHandlerInfos } = await import('../../assets/asset-handler/config');
         this.register('cocos-cli', assetHandlerInfos, true);
         AssetHandlerManager.createTemplateRoot = assetConfig.data.createTemplateRoot;
@@ -157,21 +185,20 @@ class AssetHandlerManager {
                 // 收集默认配置，注册到导入系统内
                 if (assetHandler.userDataConfig) {
                     for (const key in assetHandler.userDataConfig.default) {
-                        if (this._userDataCache[name] && this._userDataCache[name][key]) {
-                            assetHandler.userDataConfig.default[key].default = this._userDataCache[name][key];
+                        const item = assetHandler.userDataConfig.default[key];
+                        if (item.default !== undefined && item.default !== null) {
+                            lodash.set(this._defaultUserData, `${name}.${key}`, item.default);
                         }
-                        if ([undefined, null].includes(assetHandler.userDataConfig.default[key].default)) {
-                            continue;
+                        if (Object.prototype.hasOwnProperty.call(this._userDataCache[name] ?? {}, key)) {
+                            item.default = this._userDataCache[name][key];
                         }
-                        lodash.set(this._defaultUserData, `${name}.${key}`, assetHandler.userDataConfig.default[key].default);
                     }
-                    const combineUserData = {
-                        ...(this._defaultUserData[name] || {}),
-                        ...(this._userDataCache[name] || {}),
-                    };
-
-                    Object.keys(combineUserData).length && setDefaultUserData(name, combineUserData);
                 }
+                const combineUserData = {
+                    ...this._defaultUserData[name],
+                    ...this._userDataCache[name],
+                };
+                setDefaultUserData(name, combineUserData);
                 return this.name2importer[name] = new CustomImporter(extensions, this.name2handler[name]);
             }
         } catch (error) {
@@ -667,16 +694,21 @@ class AssetHandlerManager {
         if (!this.name2handler[handler]) {
             throw new Error(`Asset handler not found: ${handler}`);
         }
-        lodash.set(this._userDataCache, `${handler}.${key}`, value);
-        this._updateDefaultUserDataToHandler(handler, key, value);
-        const combineUserData = {
-            ...(this._defaultUserData[handler] || {}),
-            ...this._userDataCache[handler],
-        };
-        setDefaultUserData(handler, combineUserData);
-
-        const defaultMetaPath = join(assetConfig.data.root, '.creator', 'default-meta.json');
-        await outputJSON(defaultMetaPath, this._userDataCache);
+        const write = this.defaultUserDataWrite.then(async () => {
+            const updated = lodash.cloneDeep(this._userDataCache);
+            lodash.set(updated, `${handler}.${key}`, value);
+            const bytes = Buffer.from(`${JSON.stringify(updated)}\n`);
+            await outputFile(this.defaultMetaPath, bytes);
+            this._userDataCache = updated;
+            this._updateDefaultUserDataToHandler(handler, key, value);
+            setDefaultUserData(handler, {
+                ...(this._defaultUserData[handler] || {}),
+                ...updated[handler],
+            });
+            this.importDefaults.sha256 = createHash('sha256').update(bytes).digest('hex');
+        });
+        this.defaultUserDataWrite = write.catch(() => {});
+        await write;
     }
 
     /**
