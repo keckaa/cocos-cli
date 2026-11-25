@@ -43,4 +43,7 @@ export interface IAssetFileSystemProvider {
     delete?(path: string, options?: IAssetDeleteOptions): Promise<void> | void;
     rename?(oldPath: string, newPath: string, options?: IAssetRenameOptions): Promise<void> | void;
     copy?(sourcePath: string, destinationPath: string, options?: IAssetRenameOptions): Promise<void> | void;
+    /** Atomically hard-link a staged ordinary file without replacing an existing destination.
+     * The target must share the staged inode; preserve-meta uses it as an ownership witness. */
+    installNoReplace?(sourcePath: string, destinationPath: string): Promise<void> | void;
 }

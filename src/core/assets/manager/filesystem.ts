@@ -7,6 +7,7 @@ import type { IMoveOptions } from '../@types/private';
 import type { DeleteAssetOptions } from '../@types/public';
 import assetConfig from '../asset-config';
 import Utils from '../../base/utils';
+import { link } from 'fs/promises';
 
 const localFileSystemProvider: IAssetFileSystemProvider = {
     async readFile(path: string, encoding?: BufferEncoding): Promise<Buffer | string> {
@@ -42,6 +43,11 @@ const localFileSystemProvider: IAssetFileSystemProvider = {
 
         await fsCopy(sourcePath, destinationPath, { overwrite: options.overwrite });
     },
+    async installNoReplace(sourcePath: string, destinationPath: string): Promise<void> {
+        // Both paths are on the same volume. link() fails atomically with EEXIST.
+        // Keep the staged link until the import finishes, as an ownership witness.
+        await link(sourcePath, destinationPath);
+    },
 };
 
 let provider: IAssetFileSystemProvider = localFileSystemProvider;
@@ -62,6 +68,10 @@ function mergeFileSystemProvider(nextProvider?: IAssetFileSystemProvider): IAsse
     if (!nextProvider) {
         return mergedProvider;
     }
+
+    // A host provider must opt in to this stronger publication contract.
+    // Falling back to local I/O could escape that provider's write boundary.
+    if (!nextProvider.installNoReplace) delete mergedProvider.installNoReplace;
 
     for (const key of Object.keys(nextProvider) as Array<keyof IAssetFileSystemProvider>) {
         const method = nextProvider[key];

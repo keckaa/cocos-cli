@@ -1,7 +1,12 @@
 type AssetsModule = typeof import('../assets');
-import type { AssetHandlerType, AssetDBOptions, IAssetInfo, IAssetType, IAssetMeta, AssetUserDataMap, CreateAssetOptions, DeleteAssetOptions, QueryAssetsOption } from '../assets';
+import type { AssetHandlerType, AssetDBOptions, IAssetInfo, IAssetType, IAssetMeta, AssetUserDataMap, AssetImportOptions, CreateAssetOptions, DeleteAssetOptions, QueryAssetsOption } from '../assets';
 
 describe('cocos-cli-types: assets', () => {
+    it('exposes preserveMeta only through import options', () => {
+        const options: AssetImportOptions = { preserveMeta: true };
+        const typedOptions: Parameters<AssetsModule['importAsset']>[2] = options;
+        expect(typedOptions?.preserveMeta).toBe(true);
+    });
     it('should be able to import api functions', () => {
         let _init: AssetsModule['init'] | undefined = undefined;
         let _createAsset: AssetsModule['createAsset'] | undefined = undefined;

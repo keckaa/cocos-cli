@@ -134,6 +134,10 @@ export const SchemaAssetOperationOption = z.object({
     rename: z.boolean().optional().describe('Whether to automatically rename conflicting files, default false'), // 是否自动重命名冲突文件，默认 false
 }).optional().describe('Asset operation options'); // 资源操作选项
 
+export const SchemaAssetImportOptions = SchemaAssetOperationOption.unwrap().extend({
+    preserveMeta: z.boolean().optional().describe('Import the adjacent source .meta without reassigning existing identities. Requires a new target file and sidecar, and does not support overwrite or rename.'),
+}).optional().describe('Asset import options');
+
 export const SchemaCreateAssetByTypeOptions = z.object({
     overwrite: z.boolean().optional().describe('Whether to force overwrite existing files, default false'), // 是否强制覆盖已存在的文件，默认 false
     rename: z.boolean().optional().describe('Whether to automatically rename conflicting files, default false'), // 是否自动重命名冲突文件，默认 false
@@ -306,6 +310,7 @@ export type TSupportCreateType = z.infer<typeof SchemaSupportCreateType>;
 export type TTargetPath = z.infer<typeof SchemaTargetPath>;
 export type TAssetNewName = z.infer<typeof SchemaAssetNewName>;
 export type TAssetOperationOption = z.infer<typeof SchemaAssetOperationOption> | undefined;
+export type TAssetImportOptions = z.infer<typeof SchemaAssetImportOptions>;
 export type TSourcePath = z.infer<typeof SchemaSourcePath>;
 export type TAssetData = z.infer<typeof SchemaAssetData>;
 export type TSerializedAssetPatch = z.infer<typeof SchemaSerializedAssetPatch>;

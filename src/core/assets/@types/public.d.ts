@@ -453,6 +453,12 @@ export interface AssetOperationOption {
     rename?: boolean;
 }
 
+/** Import-only options. Existing asset copies continue to receive new identities. */
+export interface AssetImportOptions extends AssetOperationOption {
+    /** Import an existing sidecar .meta for a new file, and reject identity reassignment. */
+    preserveMeta?: boolean;
+}
+
 export interface DeleteAssetOptions {
     useTrash?: boolean;
 }

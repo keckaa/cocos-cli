@@ -7,12 +7,13 @@ import { copy as fsCopy, move, remove, existsSync } from 'fs-extra';
 import { isAbsolute, dirname, join, relative, extname } from 'path';
 import { IMoveOptions } from '../@types/private';
 import { IAsset, CreateAssetOptions, IExportOptions, IExportData, CreateAssetByTypeOptions, ICreateMenuInfo } from '../@types/protected';
-import { AssetOperationOption, AssetUserDataMap, DeleteAssetOptions, IAssetInfo, IAssetMeta, ISupportCreateType } from '../@types/public';
+import { AssetImportOptions, AssetOperationOption, AssetUserDataMap, DeleteAssetOptions, IAssetInfo, IAssetMeta, ISupportCreateType } from '../@types/public';
 import assetConfig from '../asset-config';
 import { url2path, ensureOutputData, url2uuid, pathToDbUrlIfAssetDBPath, dirnameForDbUrlOrPath } from '../utils';
 import assetDBManager from './asset-db';
 import assetHandlerManager from './asset-handler';
 import { copyAssetSource } from './asset-copy';
+import { assertImportMetaIdentity, importAssetPreservingMeta, type ImportedMetaIdentity } from './asset-import-meta';
 import { copyPath, moveAssetSource, removeAssetSource, renamePath } from './filesystem';
 import i18n from '../../base/i18n';
 import assetQuery, { ASSET_TREE_INFO_DATA_KEYS } from './query';
@@ -505,13 +506,42 @@ class AssetOperation extends EventEmitter {
      * @param target 
      * @param options 
      */
-    async importAsset(source: string, target: string, options?: AssetOperationOption): Promise<IAssetInfo[]> {
+    async importAsset(source: string, target: string, options?: AssetImportOptions): Promise<IAssetInfo[]> {
         const targetUrl = this._pathToDbUrlIfInsideAssetDB(target);
         const targetPath = targetUrl.startsWith('db://') ? url2path(targetUrl) : target;
         return this._queueImportByTargetPath(targetPath, () => this._importAsset(source, targetPath, options));
     }
 
-    private async _importAsset(source: string, targetPath: string, options?: AssetOperationOption): Promise<IAssetInfo[]> {
+    private async _importAsset(source: string, targetPath: string, options?: AssetImportOptions): Promise<IAssetInfo[]> {
+        if (options?.preserveMeta) {
+            if (options.overwrite || options.rename) throw new Error('Preserve-meta import does not support overwrite or rename');
+            this.checkValidUrl(targetPath);
+            const reservation = this._reserveImportTargetPath(targetPath, { overwrite: false, rename: false });
+            try {
+                return await importAssetPreservingMeta(source, targetPath, {
+                    assertAvailable: (target, identities) => this._assertPreserveMetaAvailable(target, identities),
+                    importInstalled: async (target, _metadata, identities) => {
+                        // A new target has no cached meta (asserted before publication);
+                        // let official MetaManager.get read the installed sidecar.
+                        await this.refreshAssetOnly(target);
+                        const asset = assetQuery.queryAsset(target);
+                        if (!asset || !asset.imported || asset.invalid) throw asset?.importError || new Error('Preserve-meta asset import did not complete');
+                        const current = assertImportMetaIdentity(identities, asset.meta);
+                        const info = assetQuery.encodeAsset(asset, [...ASSET_TREE_INFO_DATA_KEYS, 'meta']);
+                        // The returned tree and complete metadata describe the same live identities.
+                        const receiptUuids = new Set<string>();
+                        const visit = (node: IAssetInfo): void => {
+                            if (!node.imported || node.invalid) throw new Error('Preserve-meta receipt contains an incomplete subasset');
+                            receiptUuids.add(node.uuid);
+                            Object.values(node.subAssets ?? {}).forEach(visit);
+                        };
+                        visit(info);
+                        for (const value of current.values()) if (!receiptUuids.has(value.uuid)) throw new Error('Preserve-meta receipt omitted a live metadata identity');
+                        return [info];
+                    },
+                });
+            } finally { reservation.release(); }
+        }
         const isSamePath = this._isSameFilesystemPath(source, targetPath);
         const reservation = isSamePath ? undefined : this._reserveImportTargetPath(targetPath, options);
         targetPath = reservation?.targetPath ?? targetPath;
@@ -539,6 +569,34 @@ class AssetOperation extends EventEmitter {
             });
         } finally {
             reservation?.release();
+        }
+    }
+
+    private _preserveMetaDatabase(target: string) {
+        const targetUrl = this._pathToDbUrlIfInsideAssetDB(target);
+        const database = targetUrl.startsWith('db://') ? assetDBManager.assetDBMap[targetUrl.slice(5).split('/', 1)[0]] : undefined;
+        if (!database || database.options.readonly) throw new Error('Preserve-meta target is not in a writable asset database');
+        return database;
+    }
+
+    private _assertPreserveMetaAvailable(target: string, identities: ImportedMetaIdentity): void {
+        const targetDb = this._preserveMetaDatabase(target);
+        if (targetDb.path2asset.has(target) || assetQuery.queryAsset(target)) throw new Error('Preserve-meta target is already registered in AssetDB; refresh the target before importing');
+        if (targetDb.metaManager.path2meta[`${target}.meta`]) throw new Error('Preserve-meta target AssetDB cache still contains an old identity; recalibrate or restart this project before importing');
+        // AssetDB indexes roots and resolves virtual UUIDs through subAssets.
+        // Every valid preserved child belongs to the same root; query the root
+        // map instead of rescanning all metadata trees for each import.
+        const checkedRoots = new Set<string>();
+        for (const identity of identities.values()) {
+            const rootUuid = identity.uuid.split('@', 1)[0];
+            const normalizedRoot = rootUuid.toLowerCase();
+            if (checkedRoots.has(normalizedRoot)) continue;
+            checkedRoots.add(normalizedRoot);
+            const occupied = Object.values(assetDBManager.assetDBMap).some((database) =>
+                database.uuid2asset.has(rootUuid)
+                || database.uuid2asset.has(rootUuid.toLowerCase())
+                || database.uuid2asset.has(rootUuid.toUpperCase()));
+            if (occupied) throw new Error(`Preserve-meta UUID is already occupied: ${identity.uuid}`);
         }
     }
 

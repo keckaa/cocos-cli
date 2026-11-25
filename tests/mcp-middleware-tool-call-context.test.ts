@@ -1,5 +1,6 @@
 const mockRegisteredTools = new Map<string, (args: unknown, extra: any) => Promise<unknown>>();
 const mockToolExecution = jest.fn();
+const mockMcpServerConstructor = jest.fn();
 const mockToolRegistry = new Map<string, any>([
     ['context-probe', {
         target: {
@@ -15,7 +16,7 @@ const mockToolRegistry = new Map<string, any>([
 ]);
 
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
-    McpServer: jest.fn().mockImplementation(() => ({
+    McpServer: mockMcpServerConstructor.mockImplementation(() => ({
         tool: jest.fn((name: string, _description: string, _schema: unknown, callback: any) => {
             mockRegisteredTools.set(name, callback);
         }),
@@ -70,12 +71,18 @@ function requestExtra(headers?: Record<string, string | string[] | undefined>): 
 }
 
 describe('McpMiddleware tool-call context integration', () => {
+    it('advertises preserve-meta import when the active filesystem provider supports no-replace install', () => {
+        new McpMiddleware();
+        const options = mockMcpServerConstructor.mock.calls[0][1];
+        expect(options.capabilities.experimental['cocos.assetImportPreserveMeta']).toEqual({ schemaVersion: 1 });
+    });
     let debugSpy: jest.SpyInstance;
     let errorSpy: jest.SpyInstance;
 
     beforeEach(() => {
         mockRegisteredTools.clear();
         mockToolExecution.mockReset();
+        mockMcpServerConstructor.mockClear();
         debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => undefined);
         errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
         new McpMiddleware();

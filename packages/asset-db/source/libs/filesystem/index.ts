@@ -85,7 +85,9 @@ export function resolveOperationContext(path: string, kind: IAssetOperationKind,
     return takeOperationContext(path) || createWatcherOperationContext(path, kind, source);
 }
 
-function resolveProviderMethod<K extends keyof IAssetFileSystemProvider>(name: K): NonNullable<IAssetFileSystemProvider[K]> {
+type LocalProviderMethod = keyof LocalAssetFileSystemProvider & keyof IAssetFileSystemProvider;
+
+function resolveProviderMethod<K extends LocalProviderMethod>(name: K): NonNullable<IAssetFileSystemProvider[K]> {
     const method = provider[name] || localProvider[name];
     if (!method) {
         throw new Error(`asset filesystem provider method "${String(name)}" is not implemented`);
@@ -93,7 +95,7 @@ function resolveProviderMethod<K extends keyof IAssetFileSystemProvider>(name: K
     return method as NonNullable<IAssetFileSystemProvider[K]>;
 }
 
-function getMethodOwner<K extends keyof IAssetFileSystemProvider>(name: K) {
+function getMethodOwner<K extends LocalProviderMethod>(name: K) {
     return provider[name] ? provider : localProvider;
 }
 

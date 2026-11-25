@@ -393,6 +393,9 @@ export declare interface AssetDBOptions_2 {
 export declare type AssetHandlerType =
 | typeof ASSET_HANDLER_TYPES[number]
 | (string & {});
+export declare interface AssetImportOptions extends AssetOperationOption {
+    preserveMeta?: boolean;
+}
 export declare interface AssetInfo extends IAssetInfo {
     name: string;
     displayName: string;
@@ -658,6 +661,7 @@ export declare interface IAssetFileSystemProvider {
     delete?(path: string, options?: IAssetDeleteOptions): Promise<void> | void;
     rename?(oldPath: string, newPath: string, options?: IAssetRenameOptions): Promise<void> | void;
     copy?(sourcePath: string, destinationPath: string, options?: IAssetRenameOptions): Promise<void> | void;
+    installNoReplace?(sourcePath: string, destinationPath: string): Promise<void> | void;
 }
 export declare interface IAssetInfo {
     name: string;
@@ -807,7 +811,7 @@ export declare interface ImageMeta {
     uri?: string;
     remap?: string;
 }
-export declare function importAsset(source: string, target: string, options?: AssetOperationOption): Promise<IAssetInfo[]>;
+export declare function importAsset(source: string, target: string, options?: AssetImportOptions): Promise<IAssetInfo[]>;
 export declare function init(): Promise<void>;
 export declare interface IPluginScriptInfo extends PluginScriptInfo {
     url: string;
@@ -8933,6 +8937,9 @@ export declare interface AssetDBOptions_2 {
 export declare type AssetHandlerType =
 | typeof ASSET_HANDLER_TYPES[number]
 | (string & {});
+export declare interface AssetImportOptions extends AssetOperationOption {
+    preserveMeta?: boolean;
+}
 export declare interface AssetInfo extends IAssetInfo {
     name: string;
     displayName: string;
@@ -9086,6 +9093,7 @@ export declare namespace Assets {
         AssetPropertySchemaMap,
         IAssetInfo,
         AssetOperationOption,
+        AssetImportOptions,
         DeleteAssetOptions,
         AnimationMaskDump,
         AnimationMaskJoint,
@@ -9506,6 +9514,7 @@ export declare interface IAssetFileSystemProvider {
     delete?(path: string, options?: IAssetDeleteOptions): Promise<void> | void;
     rename?(oldPath: string, newPath: string, options?: IAssetRenameOptions): Promise<void> | void;
     copy?(sourcePath: string, destinationPath: string, options?: IAssetRenameOptions): Promise<void> | void;
+    installNoReplace?(sourcePath: string, destinationPath: string): Promise<void> | void;
 }
 export declare interface IAssetInfo {
     name: string;
@@ -9824,7 +9833,7 @@ export declare interface IModuleConfig {
 }
 export declare type IModuleItem = IFeatureItem | IFeatureGroup;
 export declare type IModules = Record<string, IModuleItem>;
-export declare function importAsset(source: string, target: string, options?: AssetOperationOption): Promise<IAssetInfo[]>;
+export declare function importAsset(source: string, target: string, options?: AssetImportOptions): Promise<IAssetInfo[]>;
 export declare interface ImportMap {
     imports?: Record<string, string>;
     scopes?: Record<string, Record<string, string>>;

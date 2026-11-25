@@ -14,6 +14,7 @@ import stripAnsi from 'strip-ansi';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { assetManager } from '../core/assets';
+import { assetImportPreserveMetaCapability } from '../core/assets/manager/asset-import-meta';
 import {
     completeMcpToolCallContext,
     runWithMcpToolCallContext,
@@ -55,6 +56,7 @@ export class McpMiddleware {
 
     constructor(importDefaults?: { schemaVersion: number; sha256: string | null }) {
         this.builderHook = new BuilderHook();
+        const preserveMeta = assetImportPreserveMetaCapability();
         // 创建 MCP server
         this.server = new McpServer({
             name: 'cocos-cli',
@@ -67,7 +69,10 @@ export class McpMiddleware {
                     templates: true
                 },
                 tools: {},
-                ...(importDefaults ? { experimental: { 'cocos.assetImportDefaults': importDefaults } } : {}),
+                experimental: {
+                    ...(preserveMeta ? { 'cocos.assetImportPreserveMeta': preserveMeta } : {}),
+                    ...(importDefaults ? { 'cocos.assetImportDefaults': importDefaults } : {}),
+                },
                 // 日志能力（调试用）
                 logging: {},
             }

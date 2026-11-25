@@ -9,6 +9,7 @@ import {
     SchemaSupportCreateType,
     SchemaTargetPath,
     SchemaAssetOperationOption,
+    SchemaAssetImportOptions,
     SchemaSourcePath,
     SchemaSaveAssetPath,
     SchemaAssetData,
@@ -25,6 +26,7 @@ import {
     TQueryAssetsOption,
     TSupportCreateType,
     TAssetOperationOption,
+    TAssetImportOptions,
     TAssetData,
     TSerializedAssetPatch,
     TSerializedAssetResult,
@@ -367,12 +369,12 @@ export class AssetsApi {
      */
     @tool('assets-import-asset')
     @title('Import External Asset') // 导入外部资源
-    @description('Import external asset files into the project. Copy files from the source path to the target path, and automatically execute the asset import process to generate .meta files and library files. Suitable for introducing images, audio, models, and other resources from outside.') // 将外部资源文件导入到项目中。从源路径复制文件到目标路径，并自动执行资源导入流程，生成 .meta 文件和库文件。适用于从外部引入图片、音频、模型等资源。
+    @description('Import external asset files into the project and execute the asset importer. By default, the destination receives a new identity. Set options.preserveMeta=true to import the adjacent source .meta for an absent destination; this preserves UUIDs only when they are free, requires atomic no-replace filesystem support, and cannot be combined with overwrite or rename.') // 将外部资源文件导入到项目中。从源路径复制文件到目标路径，并自动执行资源导入流程，生成 .meta 文件和库文件。适用于从外部引入图片、音频、模型等资源。
     @result(SchemaImportedAssetResult)
     async importAsset(
         @param(SchemaSourcePath) source: TDirOrDbPath,
         @param(SchemaTargetPath) target: TDirOrDbPath,
-        @param(SchemaAssetOperationOption) options?: TAssetOperationOption
+        @param(SchemaAssetImportOptions) options?: TAssetImportOptions
     ): Promise<CommonResultType<TImportedAssetResult>> {
         const code: HttpStatusCode = COMMON_STATUS.SUCCESS;
         const ret: CommonResultType<TImportedAssetResult> = {

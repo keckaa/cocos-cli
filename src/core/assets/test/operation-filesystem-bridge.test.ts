@@ -92,6 +92,9 @@ jest.mock('../manager/filesystem', () => ({
     resetFileSystemProvider: jest.fn(),
 }));
 
+// Asset operation is isolated from the project compiler/engine lifecycle.
+jest.mock('../../scripting', () => ({ __esModule: true, default: { relocateScript: jest.fn() } }));
+
 jest.mock('../manager/asset-copy', () => ({
     copyAssetSource: (...args: any[]) => mockCopyAssetSource(...args),
 }));
@@ -208,6 +211,31 @@ describe('asset operation filesystem bridge', () => {
         const assetQuery = require('../manager/query').default as typeof import('../manager/query').default;
         delete (assetQuery as any).queryAssets;
         jest.restoreAllMocks();
+    });
+
+    it('blocks preserve-meta identities using the root UUID map and refuses stale target metadata cache', async () => {
+        const { assetOperation } = require('../manager/operation') as typeof import('../manager/operation');
+        const target = 'D:/project/assets/new-image.png';
+        const rootUuid = 'b5929d2c-caf4-4454-8f7e-4e84cb5ce144';
+        const database = {
+            options: { target: 'D:/project/assets', readonly: false },
+            path2asset: new Map(),
+            uuid2asset: new Map(),
+            metaManager: { path2meta: {} as Record<string, unknown> },
+        };
+        const assetDBManager = require('../manager/asset-db').default as typeof import('../manager/asset-db').default;
+        assetDBManager.assetDBMap.assets = database as any;
+        const identities = new Map([
+            ['', { uuid: rootUuid, importer: 'image' }],
+            ['6c48a', { uuid: `${rootUuid}@6c48a`, importer: 'texture' }],
+        ]);
+        expect(() => (assetOperation as any)._assertPreserveMetaAvailable(target, identities)).not.toThrow();
+        await expect(assetOperation.importAsset('D:/external/image.png', target, { preserveMeta: true, overwrite: true })).rejects.toThrow('does not support overwrite or rename');
+        database.uuid2asset.set(rootUuid.toUpperCase(), {});
+        expect(() => (assetOperation as any)._assertPreserveMetaAvailable(target, identities)).toThrow('UUID is already occupied');
+        database.uuid2asset.clear();
+        database.metaManager.path2meta[`${target}.meta`] = {};
+        expect(() => (assetOperation as any)._assertPreserveMetaAvailable(target, identities)).toThrow('cache still contains an old identity');
     });
 
     it('updateUserData replaces sub asset userData through composite uuid with one reimport', async () => {
